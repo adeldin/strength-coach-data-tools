@@ -300,7 +300,8 @@ def suggest_coarser(rows_by_athlete, trait_names, minimum):
         small, smallest = smallest_group(rows_by_athlete, [t], minimum)
         singles.append(f"{t} alone leaves a group of {smallest}")
     return ("even one trait on its own is not enough: " + "; ".join(singles)
-            + ". Merge the rare values (for example put the goalkeeper with the defenders) or drop every trait column")
+            + ". Merge the rare values (a rare position into a broader group, a sparse band into its neighbour) "
+              "or drop every trait column")
 
 
 # ------------------------------------------------------------------ the run
