@@ -1,0 +1,9 @@
+# outputs of the scripts: never commit coded data or a key
+coded_output/
+cmj_output/
+KEY_DO_NOT_SHARE/
+
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db

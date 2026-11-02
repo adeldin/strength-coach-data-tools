@@ -1,0 +1,100 @@
+{
+  "note": "All names are made up. Codes are random on every deidentify.py run, so answers are given by name; look the name up in KEY_DO_NOT_SHARE/athlete_key.csv to find its code.",
+  "season1": {
+    "season_start_date": "2024-08-05",
+    "weeks": 14,
+    "players": 28,
+    "cmj": {
+      "chosen_week": 8,
+      "flagged_in_chosen_week": [
+        "Ivo Larsen",
+        "Sven Quiroga"
+      ],
+      "planted_drops_cm": [
+        3.0,
+        2.6
+      ],
+      "decoy_not_flagged": "Zane Zahra",
+      "decoy_drop_cm": 1.13,
+      "not_enough_data": "Dario Mbeki",
+      "two_trials_only": {
+        "player": "Maya Pereira",
+        "week": 6
+      },
+      "duplicated_test_day": {
+        "player": "Lior Varga",
+        "week": 7
+      },
+      "value_in_inches": {
+        "player": "Joel Pereira",
+        "week": 9,
+        "trial": 2
+      },
+      "thresholds_at_generation_cm": {
+        "te": 0.782,
+        "swc": 1.08,
+        "k": 1.5,
+        "k_te": 1.173,
+        "between_athlete_sd": 5.4,
+        "effective_threshold": 1.173
+      }
+    },
+    "deidentify": {
+      "conflicting_heights": {
+        "player": "Dario Varga",
+        "heights_cm": [
+          184,
+          192
+        ],
+        "weeks_with_second_height": [
+          3,
+          9,
+          12
+        ]
+      },
+      "name_variant_pair": [
+        "J. Okafor",
+        "Jamal Okafor"
+      ],
+      "ambiguous_date_present": "09/10/2024",
+      "notes_column_with_a_name": {
+        "column": "Notes",
+        "file": "wellness_season1.csv",
+        "name": "Priya Raman"
+      },
+      "unique_goalkeeper": "Sven Santos",
+      "goalkeeper_injury_week": 6,
+      "columns_to_drop_examples": [
+        "Jersey Number",
+        "Device ID",
+        "Notes"
+      ]
+    }
+  },
+  "season2": {
+    "season_start_date": "2025-08-04",
+    "players": 28,
+    "left_after_season1": [
+      "Amara Okafor",
+      "Dario Mbeki",
+      "Hugo Okafor",
+      "Ines Oduya",
+      "Joel Pereira",
+      "Lior Varga",
+      "Luca Rahimi",
+      "Pia Tanaka"
+    ],
+    "joined_in_season2": [
+      "Carla Eze",
+      "Farid Abara",
+      "Kito Okafor",
+      "Mira Petrov",
+      "Oskar Ustinov",
+      "Pia Novak",
+      "Sven Vieira",
+      "Vera Yilmaz"
+    ],
+    "turnover_percent": 28.6,
+    "planted_problems": "none"
+  }
+}

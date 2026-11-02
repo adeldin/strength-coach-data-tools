@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use these scripts, please cite them as below."
+title: "strength-coach-data-tools: de-identification and jump monitoring scripts for strength and conditioning coaches"
+version: 0.1.0
+date-released: 2026-11-02
+authors:
+  - family-names: Deldin
+    given-names: Anthony
+    affiliation: "Loyola University Chicago"
+repository-code: "https://github.com/adeldin/strength-coach-data-tools"
+keywords:
+  - strength and conditioning
+  - athlete monitoring
+  - de-identification
+  - countermovement jump
+  - typical error
+  - smallest worthwhile change
