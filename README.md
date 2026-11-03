@@ -4,8 +4,8 @@ Two small, tested Python scripts for strength and conditioning coaches who work 
 monitoring exports (GPS, force plate, wellness) and do not have a data scientist on staff.
 
 - **deidentify.py** turns an export into **coded data** before it leaves your computer: it keeps only the
-  columns you list, replaces names with random codes, turns dates into training weeks, bands body size,
-  groups positions, and tells you in plain English where an athlete could still be picked out.
+  columns you list, replaces names with random codes, turns dates into training weeks and session numbers,
+  bands body size, groups positions, and tells you in plain English where an athlete could still be picked out.
 - **cmj_flags.py** flags meaningful drops in countermovement jump (CMJ) height using a baseline, the
   squad's typical error (TE) and the smallest worthwhile change (SWC).
 
@@ -16,14 +16,15 @@ They accompany the article *Artificial Intelligence for the Strength Coach Witho
 
 1. The de-identification script **reduces** re-identification risk. It does **not** make data anonymous.
    Someone who knows your squad may still recognise the only goalkeeper, the tallest athlete, or the
-   player who was injured in week 6. Read the report it writes and act on the warnings.
+   player who was injured in week 6. Read the report it writes and act on the warnings. Its name detection
+   is **not comprehensive**: it cannot find every name in free text, so read any text you choose to keep.
 2. **Your institution's compliance office has the final say** on what may be shared or uploaded anywhere,
    including to an AI tool. These scripts do not change that.
 3. Every number in `cmj_flags.py` (baseline length, k, the SWC multiplier, the plausible range) is an
    **adjustable choice, not a rule**. The defaults are the ones described in the article.
 
 Both scripts use only Python itself: nothing to install beyond Python, no network calls, and your input
-files are never changed.
+files are never changed. An output file that already exists is never replaced unless you add `--overwrite`.
 
 ---
 
@@ -56,7 +57,7 @@ On a Mac, every command below is typed with `python3` instead of `python`.
 ## 2. Download the scripts
 
 1. On the repository page, click the green **Code** button, then **Download ZIP**.
-2. Unzip it. You will have a folder called `strength-coach-data-tools`. Put it somewhere easy to find,
+2. Unzip it. You will have a folder called `strength-coach-data-tools-main`. Put it somewhere easy to find,
    such as your Documents folder.
 3. Open a terminal **in that folder**:
    - Windows: open the folder in File Explorer, click in the address bar, type `powershell` and press Enter.
@@ -99,6 +100,10 @@ made-up name, open `KEY_DO_NOT_SHARE/athlete_key.csv`.
 
 To regenerate the synthetic files from scratch: `python make_synthetic_squad.py` (same files every time).
 
+To run everything again, add `--overwrite` to each command, or delete the `coded_output` and `cmj_output` folders
+first. Without it, the scripts stop rather than replace a file you already have. Keep the key folder: it holds the
+codes.
+
 ## 4. Point the scripts at your own export
 
 Open `deidentify.py` in any text editor (Notepad, TextEdit in plain-text mode, or VS Code). Everything you
@@ -110,26 +115,88 @@ need to change is in the **SETTINGS** block at the top; you do not need to read 
    - `athlete_id_column`: the heading of the column that holds the athlete's name or ID.
    - `keep_columns`: the headings you want in the shared file, **spelled exactly as the export spells
      them** (spaces at the start or end do not matter). Anything not listed is dropped. Start with fewer
-     columns than you think you need.
+     columns than you think you need. If two kept columns would end up with one heading, the script stops.
+   - **Column types**: every kept column is treated as a **number** unless you say otherwise. A value that is
+     not a number is left blank and counted in the report, and a column of nothing but text is dropped. Use
+     `column_types` for anything else: `"category"` for a short label like Training or Match (values over 40
+     characters are left blank). The ID, date, position, class year and event columns are known from their own
+     settings.
+   - `allowed_text_columns`: free text, like a notes column, is dropped unless you list it here. The report then
+     warns you, because **name detection is not comprehensive**: the script looks for the IDs in your file and for
+     values shaped like a name, and it can miss a nickname, a first name or a misspelling. Read every value.
    - **Units** are read from the brackets at the end of each heading: `[in]` or `(in)` is converted to cm,
      `[lb]` to kg, and the heading is renamed to match. The body-mass and height columns must carry a unit;
      if yours do not, add one to the heading in the file (for example `Body Mass [kg]`), or the script stops
-     and tells you.
+     and tells you. The height column can be in cm, in or m (`[m]` is converted to cm for this column only, so
+     a distance in metres is left alone). Any other height unit stops the run.
    - **Asymmetry columns** exported as text with a side letter (`6.3 L`) are split into a number and a
      `... side` column. Columns with `(Asym)` in the heading are found automatically; list others in
      `asymmetry_columns`. Values that cannot be read are left blank and counted in the report.
    - `date_columns` and `date_format`: how dates look in your file. `"%m/%d/%Y"` is `08/05/2024`,
-     `"%d/%m/%Y"` is `05/08/2024`, `"%Y-%m-%d"` is `2024-08-05`. If you leave the format blank and any date
-     could be read two ways, the script stops and tells you.
+     `"%d/%m/%Y"` is `05/08/2024`, `"%Y-%m-%d"` is `2024-08-05`. The format is required: if it is blank, the
+     script stops, because a date like 03/04/2026 can be read two ways.
    - `position_column`, `class_year_column`, `height_column`, `body_mass_column`: set to `""` if your
      export does not have them.
    - `event_columns`: columns that record an injury, illness or similar event.
-3. **Position groups**: edit `position_groups` so your export's position labels map to broader groups.
-4. **Key folder**: `KEY_DO_NOT_SHARE` by default. Keep it off shared drives, out of cloud sync, and out of
-   every AI tool. It is the only thing that links codes back to names. Use the **same key folder** for all
-   your exports so an athlete keeps one code everywhere.
+3. **Position groups**: `position_groups` is a coach-edited mapping from your export's position labels to broader
+   groups. The script does not decide which positions belong together: you do. It warns when a position, or a
+   combination of traits, leaves fewer than `minimum_group_size` athletes, and you then merge groups or drop the
+   column. A position missing from the mapping is kept as written, with a warning.
+4. **Key folder**: `KEY_DO_NOT_SHARE` by default. It is the only thing that links codes back to names, so keep it off
+   shared drives and out of every AI tool. Use the **same key folder** for all your exports so an athlete keeps one
+   code everywhere. See "Where to keep the key" below.
 5. Run `python deidentify.py gps` (or the profile you edited). Read the report: it is printed on screen
-   and saved as `coded_output/deidentify_report_<file>.txt`.
+   and saved as `coded_output/deidentify_report_<file>.txt`. Details that could name someone go in a separate
+   report beside the key, `PRIVATE_deidentify_report_<file>.txt`.
+
+### A complete example of edited settings
+
+Here is one edited profile, for a Windows computer. Three things trip people up: every heading and path goes inside
+straight double quotes, every line in a list or block ends with a comma, and each backslash in a Windows path is
+typed twice. On a Mac, a path looks like `"/Users/coach/Documents/exports/jumps_fall.csv"`, with single forward slashes.
+
+```python
+SETTINGS = {
+    "output_folder": "coded_output",
+    "key_folder": "C:\\Users\\coach\\AthleteKey",
+    "key_file": "athlete_key.csv",
+    "season_start_date": "2025-08-04",
+    "minimum_group_size": 5,
+    # ... leave the other general settings as they are ...
+    "profiles": {
+        "force_plate_trials": {
+            "input_file": "C:\\Users\\coach\\Documents\\exports\\jumps_fall.csv",
+            "athlete_id_column": "Athlete",
+            "keep_columns": ["Athlete", "Test Date", "Test Type", "Trial", "Jump Height (cm)", "Body Weight [kg]"],
+            "date_columns": ["Test Date"],
+            "date_format": "%m/%d/%Y",
+            "column_types": {"Test Type": "category"},
+            "allowed_text_columns": [],
+            "position_column": "",
+            "class_year_column": "",
+            "height_column": "",
+            "body_mass_column": "Body Weight [kg]",
+            "event_columns": [],
+            "asymmetry_columns": [],
+        },
+    },
+}
+```
+
+### Where to keep the key
+
+Choose a folder that does **not** sync to the cloud. On Windows, OneDrive often syncs Documents and Desktop, and on a
+Mac, iCloud can sync them too. So make a new folder directly in your user folder, such as `C:\Users\coach\AthleteKey`
+or `/Users/coach/AthleteKey`, and check that it has no cloud icon. To check on Windows, look at the folder in File
+Explorer; on a Mac, look in System Settings under your name, then iCloud, then Drive. If your institution provides
+an approved secure location, use that. The script warns if the key folder's path looks like a cloud folder, but it
+cannot catch every one.
+
+The script keeps the previous key as `athlete_key_backup.csv` whenever it adds an athlete. It checks the key before using it, and stops if a code is blank or if an
+athlete or a code appears twice.
+
+**To find an athlete's code**, open `athlete_key.csv` in the key folder on your own computer. The `original_id` column
+holds the name and the `code` column holds the code. Use that code with `--explain`. Never upload this file.
 
 The `force_plate` profile uses the **real heading row of a VALD ForceDecks CMJ export** (per test). The `gps`,
 `force_plate_trials` and `wellness` profiles are **examples in the style of common systems**, not a specific
@@ -137,18 +204,31 @@ vendor's layout. All four match the synthetic files. Replace them with your own 
 
 ### Reading the de-identification report
 
+There are two reports. The one in `coded_output` holds no names, IDs or free-text values. The **PRIVATE** one beside
+the key holds the details that could identify someone: name variants, conflicting values and the exact groups that are too small. Never share it.
+
+Every warning says what to do about it:
+
+| Label | What it means |
+|---|---|
+| **FIX BEFORE USING RESULTS** | Something in the data is wrong or was left out. Fix the file or the settings and run again. |
+| **DO NOT SHARE** | An athlete could still be identified. Do not share the file until you have dealt with it. |
+| **INFORMATION ONLY** | Worth knowing. You do not have to change anything. |
+
 - **COLUMNS**: what was kept and dropped. If a dropped column surprises you, add it to `keep_columns`.
-- **ATHLETE CODES**: how many athletes, how many reused a code from the key, and any pairs of IDs that look
-  like one person written two ways. The script never merges them itself; add them to `id_aliases` if they
-  are the same person.
-- **ID CONFLICTS**: one code recorded with two heights (or two positions, or two class years). Two people
-  may share a name, or a value was mistyped.
-- **UNIQUENESS CHECK**: (a) athletes who are alone, or in a group smaller than `minimum_group_size`, on
-  position group + class year + body-mass band + height band; (b) rows where week + position + event
-  point to fewer than that many athletes. Each comes with a suggestion for a coarser grouping. Counts are
-  **different athletes**, not rows, because one athlete with 30 sessions is still one athlete.
-- **VERIFICATION**: the script re-reads its own output and stops (deleting the output) if any original name
-  or ID is still in it. It also warns about values that look like a person's name in any kept column.
+- **ATHLETE CODES**: how many athletes, how many reused a code from the key, and how many pairs of IDs look
+  like one person written two ways. The private report lists the pairs. The script never merges them itself; add
+  them to `id_aliases` if they are the same person.
+- **UNITS AND VALUES**: what was converted, and how many values were left blank because they were not numbers.
+- **ID CONFLICTS**: how many IDs were recorded with two heights (or two positions, or two class years). Two people
+  may share a name, or a value was mistyped. The private report has the details.
+- **UNIQUENESS CHECK**: (a) trait combinations (position group + class year + body-mass band + height band) that fewer
+  than `minimum_group_size` athletes share; (b) rows where week + session + position + event point to fewer than that
+  many athletes. Each comes with a suggestion for a coarser grouping. Counts are **different athletes**, not rows, and
+  they cover every combination as it appears in the output, so an athlete with one unusual value is counted there too.
+- **VERIFICATION**: the script re-reads every cell of its output before saving it, and stops if any original name or
+  ID is still there, whatever its length. If that happens, the new file is not saved and any earlier file stays as it
+  was. It also warns about values that look like a person's name in any kept text column.
 
 If a warning remains that you cannot fix by dropping or coarsening a column, do not share the file.
 
@@ -178,7 +258,23 @@ python cmj_flags.py --explain ATH-XXXXXX
 ```
 
 The second command prints one athlete's calculation step by step (baseline days and trials, baseline
-mean, this day's trials and mean, the drop, both thresholds, the decision) so you can check it by hand.
+mean, this day's trials and mean, the drop, both thresholds, the decision) so you can check it by hand. It writes no
+files, so you can run it as often as you like. To find an athlete's code, see "Where to keep the key" in section 4.
+
+### More than one session in a week
+
+You do not need to do anything. `deidentify.py` writes a `Week` and a `Session` column: the session number is the
+date's place among the different dates in that week, across the whole file. `cmj_flags.py` treats week + session as
+the test day, so **two sessions in one week are two test days**, not a duplicate. Everyone tested on the same date shares a session number.
+Two tests on one date cannot be told apart once the date is gone, so they are read as a duplicated day: split them into separate rows with different dates, or keep one.
+
+### Season 2
+
+Use the **same key folder**, so returning athletes keep their codes. In `deidentify.py`, change `season_start_date`
+(the synthetic squad's second season starts `"2025-08-04"`) and each profile's `input_file`
+(for example `"synthetic_data/cmj_trials_season2.csv"`). In `cmj_flags.py`, change `input_file` to the new coded file
+(`"coded_output/coded_cmj_trials_season2.csv"`). Each season gets its own baseline and thresholds, because the script
+reads one file at a time. Do not combine seasons in one file: their week numbers would overlap.
 
 ### What the method does
 
@@ -196,10 +292,17 @@ mean, this day's trials and mean, the drop, both thresholds, the decision) so yo
    typed into a cm column or centimetres typed into an inches column. Every exclusion is listed in the report.
 8. Countermovement depth, if present, is exported as a negative number (downward). Negative is valid; the
    script only warns when its size is outside `depth_plausible_min_cm` to `depth_plausible_max_cm`.
+9. The script stops, rather than guessing, if weeks or sessions are not whole numbers, if a file mixes weeks and dates,
+   if two headings are the same once units are ignored, or if the `Test Type` column is missing. To turn test-type filtering
+   off on purpose, set `test_type_column` to `""`.
 
 A flag is a prompt to check in with the athlete, not a decision. The TE assumes athletes were stable across
 their baseline days; if they were fatigued, injured or still learning the test, TE is inflated and real
 drops are missed.
+
+**A steady trend is a different problem.** If jumps climb or fall steadily across the baseline days, TE can be misleadingly small:
+31, 32, 33, 34 cm gives differences of 1, 1, 1, so their SD, and TE with it, is 0. The report warns (INFORMATION ONLY)
+when every one of an athlete's baseline differences has the same sign. In a squad, one athlete's trend is averaged with everyone else's, but check it.
 
 **Known limit of the inches check.** The plausible range starts at 15 cm. A jump above 38 cm typed in inches
 is 15 or more, so it passes the range check. The script therefore also warns when one trial differs from
@@ -224,7 +327,7 @@ Zane Zahra is the reason the rule needs both thresholds: a 1.52 cm drop is bigge
 change, but it is within what day-to-day noise can produce in this squad. Dario Mbeki was tested only in weeks 7
 and 8, so there is no baseline to compare against. No other athlete drops past the SWC in week 8.
 
-Across the whole season the script raises **30 flags** on 18 athletes, about 11% of the 269 test days after the
+Across the whole season the script raises **30 flags** on 18 athletes, about 11% of the 270 test days after the
 baseline. Only the week-8 drops of Ivo Larsen and Sven Quiroga were planted. The other 28 are ordinary noise: these
 made-up jumps vary by about 4% from day to day, and at k = 1.5 some of that variation crosses the threshold. Ivo
 Larsen's week-7 flag is one of them.

@@ -75,7 +75,7 @@ class DeidentifyTests(unittest.TestCase):
             text = f.read().casefold()
         for n in names:
             self.assertNotIn(n, text, f"original ID survived in the output: {n}")
-        self.assertTrue(any("OK: the output was re-read" in line for line in r["report"]))
+        self.assertTrue(any("OK: every cell of the output was re-read" in line for line in r["report"]))
 
     def test_verification_deletes_a_leaking_output(self):
         # keep a column that repeats the name: the re-read must catch it and delete the file
@@ -88,6 +88,7 @@ class DeidentifyTests(unittest.TestCase):
             for row in rows:
                 w.writerow(row | {"Coach Note": f"Talked to {row['Player Name']}"})
         self.settings["profiles"]["gps"]["keep_columns"].append("Coach Note")
+        self.settings["profiles"]["gps"]["allowed_text_columns"] = ["Coach Note"]
         with self.assertRaises(deidentify.StopRun) as cm:
             self.run_profile("gps", input_override=leaky)
         self.assertIn("VERIFICATION FAILED", str(cm.exception))
@@ -122,7 +123,8 @@ class DeidentifyTests(unittest.TestCase):
         self.assertNotIn("Notes", out[0], "Notes is not on the keep-list and must be dropped")
         # now keep Notes: the coach's name in it must raise the name-shaped warning
         self.settings["profiles"]["wellness"]["keep_columns"].append("Notes")
-        r2 = self.run_profile("wellness")
+        self.settings["profiles"]["wellness"]["allowed_text_columns"] = ["Notes"]
+        r2 = self.run_profile("wellness", overwrite=True)
         self.assertIn("Notes", r2["name_shaped"])
 
     # ---- the ForceDecks file: the keep-list is the whole header row minus three columns that never leave
@@ -206,7 +208,7 @@ class DeidentifyTests(unittest.TestCase):
         p = self.settings["profiles"]["force_plate"]
         p["keep_columns"] = [c + "  " for c in p["keep_columns"]]
         r = self.run_profile("force_plate")
-        self.assertEqual(r["rows"], 381)
+        self.assertEqual(r["rows"], 382)
 
     # ---- key reuse and safety
     def test_key_is_reused_across_exports(self):

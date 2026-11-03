@@ -15,21 +15,24 @@ The method, step by step:
   5. Smallest worthwhile change (SWC) = 0.2 x the between-athlete SD of the baseline means.
   6. A test day is FLAGGED when (baseline - test-day value) is bigger than BOTH the SWC AND k x TE
      (k defaults to 1.5). Drops only; improvements are never flagged.
+     A test day is one session: week + session number in a coded file, so two sessions in a week are two test days.
   7. An athlete with fewer than N baseline days is "not enough data", never flagged.
 
 A flag is a prompt to check in with the athlete, not a decision. The TE assumes athletes were stable
 across their baseline days; if they were fatigued, injured or still learning the test, TE is inflated
-and real drops are missed. Every threshold below is an adjustable choice, not a rule.
+and real drops are missed. A steady trend across the baseline days has the opposite effect: it can make TE
+misleadingly small (31, 32, 33, 34 gives TE = 0). Every threshold below is an adjustable choice, not a rule.
 
 How to run it (from the folder that holds this file):
     python cmj_flags.py
     python cmj_flags.py --input coded_output/coded_cmj_trials_season1.csv
     python cmj_flags.py --explain ATH-K7Q2MX        (one athlete's calculation, step by step)
 
-Needs Python 3.10 or newer. Standard library only. No network calls. Never changes the input file.
+Needs Python 3.10 or newer. Standard library only. No network calls. Never changes the input file, and never
+replaces an existing output unless you add --overwrite.
 """
 
-SCRIPT_VERSION = "0.3.0"
+SCRIPT_VERSION = "0.4.0"
 
 # =====================================================================================================
 # SETTINGS  -  edit these.
@@ -48,14 +51,14 @@ SETTINGS = {
     # jump_height_column "Jump Height (Imp-Mom)", trial_column "", reps_column "Reps",
     # depth_column "Countermovement Depth". Trial-level checks cannot run on a per-test export.
     "athlete_column": "Athlete Code",
-    "day_column": "Week",                 # a week number, or a date
-    "day_format": "",                     # leave "" for week numbers or year-month-day dates;
-                                          # set e.g. "%m/%d/%Y" if the day column holds dates like 08/05/2024
+    "day_column": "Week",                 # whole week numbers, or dates. One kind per file
+    "session_column": "Session",          # the session number within the week; "" if the day column holds dates
+    "day_format": "",                     # "" for week numbers. Required for dates: "%m/%d/%Y" reads 08/05/2024
     "jump_height_column": "Jump Height (cm)",
     "trial_column": "Trial",              # per-trial exports: the trial or rep number column ("" for a per-test export)
     "reps_column": "",                    # per-test exports: the column that counts the reps in the test (e.g. "Reps")
-    "test_type_column": "Test Type",      # "" if there is no such column
-    "test_type_value": "CMJ",             # only rows with this test type are used ("" = use every row)
+    "test_type_column": "Test Type",      # the script stops if this column is missing. "" turns filtering off
+    "test_type_value": "CMJ",             # only rows with this test type are used ("" also turns filtering off)
     "depth_column": "",                   # optional, e.g. "Countermovement Depth"; exported as a negative number (downward)
 
     # The method's numbers. Defaults are the ones described in the article.
@@ -89,9 +92,12 @@ import os
 import re
 import statistics
 import sys
+import tempfile
 from collections import defaultdict
 from datetime import datetime
 
+FIX = "[FIX BEFORE USING RESULTS]"
+INFO = "[INFORMATION ONLY]"
 LENGTH_UNITS = {"cm": 1.0, "in": 2.54, "inch": 2.54, "inches": 2.54, "mm": 0.1}
 UNIT_GROUP = re.compile(r"[\[(]([^\[\]()]+)[\])]")
 
@@ -101,10 +107,61 @@ class StopRun(Exception):
 
 
 def to_float(text):
+    """A finite number, or None. 'nan' and 'inf' are not numbers here."""
     try:
-        return float(str(text).strip())
+        value = float(str(text).strip())
     except ValueError:
         return None
+    return value if math.isfinite(value) else None
+
+
+def whole_number(text):
+    """An int for '8' or '8.0', or None for anything else, including '1.9' and 'inf'."""
+    value = to_float(text)
+    return int(value) if value is not None and value.is_integer() else None
+
+
+def day_text(day):
+    """How a test day is written in the report and the results: (8, 2) is week 8 session 2."""
+    return f"week {day[0]} session {day[1]}" if isinstance(day, tuple) else f"day {day}"
+
+
+# ------------------------------------------------------------------ file safety
+
+def same_file(a, b):
+    """True when two paths reach one file, through a symlink, a hard link or a different spelling."""
+    if os.path.realpath(a) == os.path.realpath(b):
+        return True
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
+def check_output_path(path, input_file, overwrite):
+    if os.path.islink(path):
+        raise StopRun(f"Refusing to run: '{path}' is a symbolic link. Remove it or choose a different folder.")
+    if same_file(path, input_file):
+        raise StopRun("Refusing to run: an output path equals the input path.")
+    if os.path.lexists(path) and not overwrite:
+        raise StopRun(f"'{path}' already exists and was not changed. Move it, choose a different folder, or add --overwrite to replace it.")
+
+
+def write_temp(path, temps, write):
+    """Write to a new temporary file beside the destination. Nothing at the destination changes yet."""
+    handle, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".", prefix=".tmp_", suffix=os.path.splitext(path)[1])
+    temps.append(tmp)
+    with os.fdopen(handle, "w", newline="", encoding="utf-8") as f:
+        write(f)
+    return tmp
+
+
+def publish(tmp, path):
+    """Move a finished, checked temporary file into place in one step."""
+    if os.path.islink(path):
+        raise StopRun(f"Refusing to run: '{path}' is a symbolic link. Remove it or choose a different folder.")
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, path)
 
 
 def unit_of(header):
@@ -140,8 +197,9 @@ def find_column(setting, headers, what, required=True):
     return None
 
 
-def day_key(raw, day_format):
-    """Something sortable: an int for week numbers, a date for dates. None if unreadable."""
+def day_key(raw, day_format, where="the test day column"):
+    """An int for week numbers, a date for dates, None for a blank. Anything else stops the run, so one file
+    can never mix weeks and dates and no week is ever rounded."""
     raw = str(raw).strip()
     if raw == "":
         return None
@@ -149,17 +207,13 @@ def day_key(raw, day_format):
         try:
             return datetime.strptime(raw, day_format).date()
         except ValueError:
-            return None
-    try:
-        return int(float(raw))
-    except ValueError:
-        pass
-    for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
-        try:
-            return datetime.strptime(raw, fmt).date()
-        except ValueError:
-            pass
-    return None
+            raise StopRun(f"{where}: '{raw}' does not match day_format '{day_format}'. A file must use one kind of test day. "
+                          f"Fix the file or the setting.") from None
+    week = whole_number(raw)
+    if week is None:
+        raise StopRun(f"{where}: '{raw}' is not a whole week number. If this column holds dates, set day_format in SETTINGS, "
+                      f"for example \"%m/%d/%Y\" for 08/05/2024. A file must use one kind of test day.")
+    return week
 
 
 def sd(values):
@@ -174,20 +228,35 @@ def read_trials(settings):
     path = s["input_file"]
     if not os.path.exists(path):
         raise StopRun(f"Input file not found: {path}")
-    with open(path, newline="", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f)
-        raw_headers = reader.fieldnames or []
-        rows = list(reader)
+    try:
+        with open(path, newline="", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            raw_headers = reader.fieldnames or []
+            rows = list(reader)
+    except UnicodeDecodeError:
+        raise StopRun(f"The input file '{path}' is not saved as UTF-8. In Excel: File, Save As, CSV UTF-8, then run again.") from None
+    except csv.Error as e:
+        raise StopRun(f"The input file '{path}' could not be read as a CSV file ({e}).") from None
     headers = [h.strip() for h in raw_headers]
+    seen = defaultdict(list)
+    for h in headers:
+        if h:
+            seen[bare(h)].append(h)
+    repeated = [v for v in seen.values() if len(v) > 1]
+    if repeated:
+        raise StopRun(f"These headings are the same once units and spaces are ignored: {repeated}. "
+                      f"The script could read the wrong one. Rename or remove one and run again.")
     rows = [{h: (r.get(rh) or "") for rh, h in zip(raw_headers, headers)} for r in rows]
 
     ath_col = find_column(s["athlete_column"], headers, "athlete")
     day_col = find_column(s["day_column"], headers, "test day")
     jump_col = find_column(s["jump_height_column"], headers, "jump height")
-    type_col = find_column(s.get("test_type_column", ""), headers, "test type", required=False)
-    trial_col = find_column(s.get("trial_column", ""), headers, "trial", required=False)
-    reps_col = find_column(s.get("reps_column", ""), headers, "reps", required=False)
-    depth_col = find_column(s.get("depth_column", ""), headers, "depth", required=False)
+    filtering = bool(s.get("test_type_column") and s.get("test_type_value"))
+    type_col = find_column(s["test_type_column"], headers, "test type") if filtering else None
+    session_col = find_column(s.get("session_column", ""), headers, "session")
+    trial_col = find_column(s.get("trial_column", ""), headers, "trial")
+    reps_col = find_column(s.get("reps_column", ""), headers, "reps")
+    depth_col = find_column(s.get("depth_column", ""), headers, "depth")
     if trial_col:
         mode = "per-trial"
     elif reps_col:
@@ -213,19 +282,30 @@ def read_trials(settings):
     exclusions = []
     n_rows = 0
     for row_num, r in enumerate(rows, start=2):
-        if type_col and s.get("test_type_value") and str(r[type_col]).strip().casefold() != s["test_type_value"].casefold():
+        if type_col and str(r[type_col]).strip().casefold() != s["test_type_value"].casefold():
             continue
         n_rows += 1
         ath = str(r[ath_col]).strip()
-        day = day_key(r[day_col], s["day_format"])
-        v = to_float(r[jump_col])
-        if not ath or day is None or v is None:
-            exclusions.append((ath or "(blank)", str(r[day_col]), f"row {row_num}: blank or unreadable athlete, day or jump height"))
+        day = day_key(r[day_col], s["day_format"], f"Row {row_num}, column '{day_col.strip()}'")
+        session = None
+        if session_col and str(r[session_col]).strip():
+            session = whole_number(r[session_col])
+            if session is None or session < 1:
+                raise StopRun(f"Row {row_num}, column '{session_col.strip()}': '{str(r[session_col]).strip()}' is not a session number (1, 2, ...).")
+        if not ath or day is None or (session_col and session is None):
+            exclusions.append((ath or "(blank)", str(r[day_col]).strip() or "(blank day)", f"row {row_num}: blank athlete, day or session"))
             continue
+        if session_col:
+            day = (day, session)
+        # an unreadable height stays in the list until the duplicate check has seen this row
+        v = to_float(r[jump_col])
         label = str(r[trial_col]).strip() if trial_col else "test"
+        trial_number = whole_number(label) if trial_col else None
+        if trial_number is not None:
+            label = str(trial_number)       # "1" and "1.0" are the same trial
         reps = to_float(r[reps_col]) if reps_col else None
         depth = to_float(r[depth_col]) * depth_factor if depth_col and to_float(r[depth_col]) is not None else None
-        raw[ath][day].append((label, v * factor, v, row_num, reps, depth))
+        raw[ath][day].append((label, None if v is None else v * factor, v, row_num, reps, depth))
 
     trials = defaultdict(dict)
     reps_by_day, depth_warn = {}, []
@@ -240,14 +320,17 @@ def read_trials(settings):
             else:
                 dup = len(labels) != len(set(labels)) or len(items) > 2 * expected - 1
             if dup:
-                exclusions.append((ath, str(day), f"duplicated test day: {len(items)} rows"
+                exclusions.append((ath, day_text(day), f"duplicated test day: {len(items)} rows"
                                    + (f" with trial numbers {sorted(labels)}" if mode == "per-trial" else "")
                                    + "; the whole day is left out until resolved"))
                 continue
             good = []
             for t, h_cm, v_raw, row_num, reps, depth in items:
+                if h_cm is None:
+                    exclusions.append((ath, day_text(day), f"row {row_num}: blank or unreadable jump height; left out"))
+                    continue
                 if depth is not None and not (dlo <= abs(depth) <= dhi):
-                    depth_warn.append((ath, str(day), f"countermovement depth {depth:.1f} cm is outside {dlo:g} to {dhi:g} cm in size (kept; check the row)"))
+                    depth_warn.append((ath, day_text(day), f"{FIX} countermovement depth {depth:.1f} cm is outside {dlo:g} to {dhi:g} cm in size (kept; check the row)"))
                 if lo <= h_cm <= hi:
                     good.append(h_cm)
                     if reps is not None:
@@ -263,14 +346,14 @@ def read_trials(settings):
                     note = f"outside the plausible range ({h_cm:.1f} cm after conversion)" if factor != 1.0 else "outside the plausible range"
                 shown = f"{v_raw:g} {unit}" if factor != 1.0 else f"{v_raw:g} cm"
                 if s["exclude_implausible"]:
-                    exclusions.append((ath, str(day), f"{'trial ' + t if mode == 'per-trial' else 'value'} = {shown} (row {row_num}): {note}; left out"))
+                    exclusions.append((ath, day_text(day), f"{'trial ' + t if mode == 'per-trial' else 'value'} = {shown} (row {row_num}): {note}; left out"))
                 else:
-                    exclusions.append((ath, str(day), f"{'trial ' + t if mode == 'per-trial' else 'value'} = {shown} (row {row_num}): {note}; KEPT because exclude_implausible is False"))
+                    exclusions.append((ath, day_text(day), f"{'trial ' + t if mode == 'per-trial' else 'value'} = {shown} (row {row_num}): {note}; KEPT because exclude_implausible is False"))
                     good.append(h_cm)
             if good:
                 trials[ath][day] = good
             else:
-                exclusions.append((ath, str(day), "no usable value on this day; day left out"))
+                exclusions.append((ath, day_text(day), "no usable value on this day; day left out"))
     counts = {"rows_read": n_rows, "athletes": len(trials),
               "test_days": sum(len(d) for d in trials.values()),
               "trials": sum(len(v) for d in trials.values() for v in d.values())}
@@ -295,23 +378,26 @@ def analyse(trials, settings, info=None):
         for d in ordered:
             if info["mode"] == "per-trial":
                 if len(days[d]) < expected:
-                    warnings.append((ath, str(d), f"only {len(days[d])} trial(s) on this day (expected {expected})"))
+                    warnings.append((ath, day_text(d), f"{INFO} only {len(days[d])} trial(s) on this day (expected {expected})"))
                 if len(days[d]) >= 2:
                     mid = statistics.median(days[d])
                     frac = float(settings.get("within_day_warning_fraction", 0.30))
                     odd = [round(h, 1) for h in days[d] if mid and abs(h - mid) / mid > frac]
                     if odd:
-                        warnings.append((ath, str(d), f"trial value(s) {odd} cm differ from the day's middle value ({mid:.1f} cm) by more than "
+                        warnings.append((ath, day_text(d), f"{FIX} trial value(s) {odd} cm differ from the day's middle value ({mid:.1f} cm) by more than "
                                                       f"{int(frac * 100)}%; check for a typing error or a value in inches (kept in the calculation)"))
             else:
                 reps = info["reps_by_day"].get((ath, d))
                 if reps is not None and reps < expected:
-                    warnings.append((ath, str(d), f"the Reps column shows {reps:g} rep(s) in this test (expected {expected}); "
+                    warnings.append((ath, day_text(d), f"{INFO} the Reps column shows {reps:g} rep(s) in this test (expected {expected}); "
                                                   f"the individual trials are not in a per-test export, so this is a note only"))
         base_days = ordered[:n_base]
         enough = len(base_days) >= n_base
         base_mean = statistics.fmean(day_means[d] for d in base_days) if enough else None
         diffs = [day_means[base_days[i + 1]] - day_means[base_days[i]] for i in range(len(base_days) - 1)] if enough else []
+        if len(diffs) >= 2 and (all(x > 0 for x in diffs) or all(x < 0 for x in diffs)):
+            warnings.append((ath, "baseline days", f"{INFO} every baseline day moved in the same direction ({', '.join(f'{x:+.2f}' for x in diffs)}). "
+                                                   f"A steady trend can make typical error misleadingly small; this athlete may still have been learning the test or getting fitter or more tired."))
         athletes[ath] = {"days": ordered, "trials": days, "day_means": day_means, "baseline_days": base_days,
                          "baseline_mean": base_mean, "baseline_diffs": diffs, "enough": enough}
     warnings += info.get("depth_warnings", [])
@@ -357,25 +443,19 @@ def analyse(trials, settings, info=None):
 
 # ------------------------------------------------------------------ output
 
-def write_outputs(settings, results, squad, warnings, exclusions, counts, info, input_file):
+def write_outputs(settings, results, squad, warnings, exclusions, counts, info, input_file, overwrite=False, write=True):
     out_dir = settings["output_folder"]
-    abs_in = os.path.abspath(input_file)
-    if os.path.abspath(out_dir) == os.path.dirname(abs_in):
-        raise StopRun("Refusing to run: output_folder is the folder that holds the input file. Use a new folder.")
-    os.makedirs(out_dir, exist_ok=True)
     stem = os.path.splitext(os.path.basename(input_file))[0]
     results_file = os.path.join(out_dir, f"cmj_results_{stem}.csv")
     report_file = os.path.join(out_dir, f"cmj_report_{stem}.txt")
-    for f in (results_file, report_file):
-        if os.path.abspath(f) == abs_in:
-            raise StopRun("Refusing to run: an output path equals the input path.")
     per_trial = info["mode"] == "per-trial"
-    with open(results_file, "w", newline="", encoding="utf-8") as f:
+
+    def write_results(f):
         w = csv.writer(f)
         w.writerow(["athlete_code", "test_day", "test_day_value_cm", "trials" if per_trial else "reps", "baseline_cm", "drop_cm",
                     "swc_cm", "k_x_te_cm", "status"])
         for r in results:
-            w.writerow([r["athlete"], r["day"], r["test_day_value"], r["trials"] if r["trials"] != "" else "",
+            w.writerow([r["athlete"], day_text(r["day"]), r["test_day_value"], r["trials"] if r["trials"] != "" else "",
                         "" if r["baseline"] is None else r["baseline"], "" if r["drop"] is None else r["drop"],
                         "" if r["swc"] is None else r["swc"], "" if r["k_te"] is None else r["k_te"], r["status"]])
 
@@ -383,7 +463,7 @@ def write_outputs(settings, results, squad, warnings, exclusions, counts, info, 
     flags = [r for r in results if r["status"] == "FLAG"]
     not_enough = sorted({r["athlete"] for r in results if r["status"] == "not enough data"})
     lines = [f"cmj_flags.py version {SCRIPT_VERSION}   run on {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-             f"Input: {input_file}", "",
+             f"Input: {os.path.basename(input_file)}", "",
              "WHAT WAS READ",
              f"  Export type: {info['mode']} "
              + ("(one row per jump; all checks run)." if per_trial else
@@ -404,22 +484,41 @@ def write_outputs(settings, results, squad, warnings, exclusions, counts, info, 
              f"  Effective threshold (a drop must exceed BOTH) = {fmt(squad['effective_threshold'])}",
              "",
              f"FLAGS ({len(flags)})"]
-    lines += [f"  {r['athlete']}  day {r['day']}: {r['test_day_value']:.2f} cm vs baseline {r['baseline']:.2f} cm, "
+    lines += [f"  {r['athlete']}  {day_text(r['day'])}: {r['test_day_value']:.2f} cm vs baseline {r['baseline']:.2f} cm, "
               f"drop {r['drop']:.2f} cm" for r in flags] or ["  none"]
     lines += ["", f"NOT ENOUGH DATA ({len(not_enough)} athletes with fewer than {settings['baseline_days']} baseline days)",
               "  " + (", ".join(not_enough) if not_enough else "none"),
               "", f"WARNINGS ({len(warnings)})"]
-    lines += [f"  {a}  day {d}: {msg}" for a, d, msg in warnings] or ["  none"]
+    lines += [f"  {a}  {d}: {msg}" for a, d, msg in warnings] or ["  none"]
     lines += ["", f"EXCLUSIONS ({len(exclusions)})"]
-    lines += [f"  {a}  day {d}: {msg}" for a, d, msg in exclusions] or ["  none"]
+    lines += [f"  {a}  {d}: {FIX} {msg}" for a, d, msg in exclusions] or ["  none"]
     lines += ["", "HOW TO READ THIS",
               "  A flag is a prompt to check in with the athlete, not a decision. Drops only are flagged.",
               "  TE assumes athletes were stable across their baseline days. If they were not, TE is inflated and",
-              "  real drops will be missed. Missing test days stay missing; they are never treated as zero.",
+              "  real drops will be missed. A steady trend across the baseline days can do the opposite and make TE",
+              "  misleadingly small (31, 32, 33, 34 gives TE = 0). Missing test days stay missing; they are never treated as zero.",
+              "  Every warning says what to do: FIX BEFORE USING RESULTS or INFORMATION ONLY.",
               "  Every threshold is an adjustable choice in SETTINGS, not a rule.",
-              "", f"Results: {results_file}", f"Report: {report_file}"]
-    with open(report_file, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
+              "", f"Results: {os.path.basename(results_file)}", f"Report: {os.path.basename(report_file)}"]
+    if write:
+        if same_file(out_dir, os.path.dirname(os.path.abspath(input_file))):
+            raise StopRun("Refusing to run: output_folder is the folder that holds the input file. Use a new folder.")
+        for path in (results_file, report_file):
+            check_output_path(path, input_file, overwrite)
+        os.makedirs(out_dir, exist_ok=True)
+        temps = []
+        try:
+            tmp_results = write_temp(results_file, temps, write_results)
+            with open(tmp_results, newline="", encoding="utf-8") as f:
+                if sum(1 for _ in csv.reader(f)) != len(results) + 1:
+                    raise StopRun("The results file did not read back correctly, so it was not saved.")
+            tmp_report = write_temp(report_file, temps, lambda f: f.write("\n".join(lines) + "\n"))
+            publish(tmp_results, results_file)
+            publish(tmp_report, report_file)
+        finally:
+            for tmp in temps:   # only the temporary files this run created
+                if os.path.exists(tmp):
+                    os.remove(tmp)
     return results_file, report_file, lines
 
 
@@ -429,17 +528,21 @@ def explain(code, athletes, squad, settings, info):
         return [f"No athlete with code '{code}' in the file."]
     a = athletes[code]
     word = "trials" if info["mode"] == "per-trial" else "test value"
-    out = [f"EXPLAIN {code}   (all values in cm)", f"  Test days ({len(a['days'])}): {', '.join(str(d) for d in a['days'])}"]
+    out = [f"EXPLAIN {code}   (all values in cm)", f"  Test days ({len(a['days'])}): {', '.join(day_text(d) for d in a['days'])}"]
     if not a["enough"]:
         out.append(f"  Fewer than {settings['baseline_days']} test days, so: not enough data. No flag can be raised.")
         return out
     out.append(f"  Baseline days (first {settings['baseline_days']}):")
     for d in a["baseline_days"]:
         tr = ", ".join(f"{h:.1f}" for h in a["trials"][d])
-        out.append(f"    day {d}: {word} {tr}  -> day value {a['day_means'][d]:.2f}")
+        out.append(f"    {day_text(d)}: {word} {tr}  -> day value {a['day_means'][d]:.2f}")
     out.append(f"  Baseline mean = {a['baseline_mean']:.2f}")
     out.append("  Consecutive-day differences in the baseline: " + ", ".join(f"{x:+.2f}" for x in a["baseline_diffs"])
                + f"   (these feed the {a['te_source']} TE)")
+    if a["te"] is None or squad["swc"] is None:
+        out.append("  Thresholds unavailable: the file does not have enough athletes with a full baseline to work out TE and the SWC, "
+                   "so no flag can be raised.")
+        return out
     out.append(f"  TE used = {a['te']:.2f} ({a['te_source']}); k x TE = {settings['k']} x {a['te']:.2f} = {settings['k'] * a['te']:.2f}; "
                f"SWC = {squad['swc']:.2f}")
     out.append("  Later test days:")
@@ -450,17 +553,17 @@ def explain(code, athletes, squad, settings, info):
         over_swc = drop > squad["swc"]
         over_kte = drop > settings["k"] * a["te"]
         verdict = "FLAG" if (over_swc and over_kte) else "no flag"
-        out.append(f"    day {d}: {word} {tr} -> {val:.2f}; drop = {a['baseline_mean']:.2f} - {val:.2f} = {drop:+.2f}; "
+        out.append(f"    {day_text(d)}: {word} {tr} -> {val:.2f}; drop = {a['baseline_mean']:.2f} - {val:.2f} = {drop:+.2f}; "
                    f"> SWC? {'yes' if over_swc else 'no'}; > k x TE? {'yes' if over_kte else 'no'}  => {verdict}")
     return out
 
 
-def run(settings, explain_code=None):
+def run(settings, explain_code=None, overwrite=False, write=True):
     trials, exclusions, counts, info = read_trials(settings)
     if not trials:
         raise StopRun("No usable rows were read. Check the column settings and the test_type_value.")
     results, squad, warnings, athletes = analyse(trials, settings, info)
-    results_file, report_file, lines = write_outputs(settings, results, squad, warnings, exclusions, counts, info, settings["input_file"])
+    results_file, report_file, lines = write_outputs(settings, results, squad, warnings, exclusions, counts, info, settings["input_file"], overwrite, write)
     out = {"results": results, "squad": squad, "warnings": warnings, "exclusions": exclusions, "counts": counts, "info": info,
            "results_file": results_file, "report_file": report_file, "report": lines, "athletes": athletes}
     if explain_code:
@@ -482,23 +585,25 @@ def main(argv=None):
     ap.add_argument("--output-folder")
     ap.add_argument("--explain", metavar="ATHLETE_CODE", help="print one athlete's calculation step by step")
     ap.add_argument("--settings-json", help="a JSON file whose values replace the matching SETTINGS entries")
+    ap.add_argument("--overwrite", action="store_true", help="replace this run's output files if they already exist")
     a = ap.parse_args(argv)
     settings = dict(SETTINGS)
-    if a.settings_json:
-        with open(a.settings_json, encoding="utf-8") as f:
-            settings.update(json.load(f))
-    if a.input:
-        settings["input_file"] = a.input
-    if a.output_folder:
-        settings["output_folder"] = a.output_folder
     try:
-        out = run(settings, a.explain)
+        if a.settings_json:
+            with open(a.settings_json, encoding="utf-8") as f:
+                settings.update(json.load(f))
+        if a.input:
+            settings["input_file"] = a.input
+        if a.output_folder:
+            settings["output_folder"] = a.output_folder
+        out = run(settings, a.explain, a.overwrite, write=not a.explain)     # --explain only prints; it writes nothing
     except StopRun as e:
         print(f"STOPPED: {e}")
         return 1
-    print("\n".join(out["report"]))
-    if a.explain:
-        print("\n" + "\n".join(out["explain"]))
+    except (OSError, ValueError, KeyError, ZeroDivisionError) as e:
+        print(f"STOPPED: a file or a setting could not be used ({e}). Nothing was replaced. If a file is open in Excel, close it and run again.")
+        return 1
+    print("\n".join(out["explain"] if a.explain else out["report"]))
     return 0
 
 

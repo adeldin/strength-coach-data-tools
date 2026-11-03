@@ -11,6 +11,7 @@ Only week 8 is engineered; the lists below are for that week, followed by every 
 - Not enough data: Dario Mbeki (tested in weeks 7 and 8 only)
 - Only 2 trials: Maya Pereira, week 6
 - Duplicated test day: Lior Varga, week 7 (trials 1,2,3,1,2,3; day excluded)
+- Two real sessions in one week: Hugo Okafor, week 11 (two test days, not a duplicate; no flag)
 - Value in inches: Joel Pereira, week 9, trial 2 (excluded; day then has 2 trials)
 - Thresholds when the data were generated: TE 1.452 cm, SWC 1.071 cm, k x TE 2.178 cm
 - At k = 1.5 (the default): both planted athletes flag in week 8. At k = 2.0 (comparison only): only Ivo Larsen flags in week 8; Sven Quiroga's drop is short of k x TE.
@@ -26,6 +27,7 @@ Only week 8 is engineered; the lists below are for that week, followed by every 
 - Not enough data: Dario Mbeki (tested in weeks 7 and 8 only)
 - Reps = 2: Maya Pereira, week 6 (a note; trials are not in a per-test export)
 - Duplicated test day: Lior Varga, week 7 (two rows; day excluded)
+- Two real sessions in one week: Hugo Okafor, week 11 (two test days, not a duplicate; no flag)
 - Centimetres typed into the inches column: Joel Pereira, week 9 (excluded; day left out)
 - Unreadable asymmetry value: Amara Larsen, week 5 (deidentify.py warning)
 - Thresholds when the data were generated: TE 1.446 cm, SWC 1.071 cm, k x TE 2.169 cm
@@ -39,9 +41,10 @@ Only week 8 is engineered; the lists below are for that week, followed by every 
 ## deidentify.py on season 1
 - Conflicting heights: Dario Varga (184 and 192 cm) in gps_season1.csv
 - Name variant pair: J. Okafor and Jamal Okafor in gps_season1.csv
-- Ambiguous date: 09/10/2024 (the run stops if date_format is blank)
+- Ambiguous date in the file: 09/10/2024
 - Notes column naming a coach: Priya Raman in wellness_season1.csv (dropped by the default settings; warned about if kept)
 - Unique goalkeeper: Sven Santos (athlete-level warning in gps and wellness; row-level warning for the week-6 injury)
+- Blank date_format: the run stops and asks for one (dates like 09/10/2024 read two ways)
 - ForceDecks file: jump height converted from inches to cm, Additional Load from lb to kg, asymmetry columns split into number and side
 
 ## Season 2

@@ -25,6 +25,7 @@ Planted CMJ problems (season 1, in BOTH force plate files unless stated):
     - one player with only 2 trials (per-trial file) / Reps = 2 (ForceDecks file) on one test day
     - one player whose test day was entered twice
     - one value in the wrong unit: inches typed into the cm file; centimetres typed into the inches file
+    - one player tested twice in one week: two real sessions, which must NOT be read as a duplicate
     - in week 8, EXACTLY two players drop enough to flag; one decoy drops past the SWC but not past
       k x TE; one player has too few baseline days
 
@@ -58,6 +59,7 @@ IN = 2.54   # cm per inch
 DAY_TO_DAY_CV = 0.04     # day-to-day variation of a test-day value, as a share of the player's mean
 TRIAL_NOISE_CM = 0.8     # SD of one jump around that day's true height
 DECOY_MARGIN_CM = 0.3    # the decoy's drop stays at least this far from both the SWC and k x TE
+SECOND_SESSION_WEEK = 11
 COMPARISON_K = 2.0       # the expected answers also list the flags at this k, for comparison only
 
 FIRST = ["Amara", "Bence", "Carla", "Dario", "Elin", "Farid", "Greta", "Hana", "Ivo", "Jamal", "Kaia", "Luca",
@@ -240,6 +242,7 @@ def align_decoy_trials(jumps, decoy, target):
 
 def trial_rows(rng, players, start, jumps, plants):
     """The per-trial file (cm), with its own planted problems."""
+    extra = plants.get("second_session") if plants else None
     j = {n: {w: list(t) for w, t in d.items()} for n, d in jumps.items()}
     dup = plants["duplicated_day"] if plants else None
     if plants:
@@ -256,6 +259,11 @@ def trial_rows(rng, players, start, jumps, plants):
                 trial_no = (i % 3) + 1 if (name == dup and w == 7) else i + 1
                 rows.append([name, mdy(d), "CMJ", trial_no, h, round(mass[name] * h * 1.9 + rng.uniform(-80, 80)),
                              round(h / rng.uniform(600, 800), 3), rng.randint(550, 850), mass[name]])
+            if extra and name == extra["player"] and w == extra["week"]:
+                own = random.Random(SEED + 1)     # its own random stream, so every other value in the files is unchanged
+                for i, h in enumerate(extra["trials"]):
+                    rows.append([name, mdy(d + timedelta(days=2)), "CMJ", i + 1, h, round(mass[name] * h * 1.9 + own.uniform(-80, 80)),
+                                 round(h / own.uniform(600, 800), 3), own.randint(550, 850), mass[name]])
     return rows
 
 
@@ -292,10 +300,26 @@ def forcedecks_values(rng, jumps, plants):
     return vals, squad
 
 
+def forcedecks_row(rng, name, d, bw, reps, v, asym_override=None):
+    h_cm = v * IN
+    asym1 = f"{rng.uniform(0.5, 12):.1f} {rng.choice('LR')}"
+    asym2 = f"{rng.randint(1, 30)} {rng.choice('LR')}"
+    hour = rng.randint(1, 5)
+    return [name, "", "CMJ", mdy(d), f"{hour}:{rng.randint(0, 59):02d} PM", bw, reps, "", 0, v,
+            round(rng.uniform(0.2, 0.6), 2), round(bw * rng.uniform(30, 45)), round(h_cm * rng.uniform(1.3, 1.6), 1),
+            rng.randint(1, 9), round(bw * rng.uniform(10, 13)), round(bw * rng.uniform(10, 13)),
+            round(bw * rng.uniform(15, 25)), round(bw * rng.uniform(15, 25)), rng.randint(240, 330),
+            round(bw * rng.uniform(2.0, 2.6), 1), round(bw * rng.uniform(16, 19)),
+            round(-rng.uniform(20, 36), 1), round(rng.uniform(120, 170), 1), rng.randint(500, 700),
+            round(rng.uniform(0.4, 0.7), 2), asym_override or asym1, asym2, round(bw * rng.uniform(50, 70)),
+            round(bw * rng.uniform(13, 16), 1)]
+
+
 def forcedecks_rows(rng, players, start, vals, plants):
     """One row per test in the real ForceDecks layout. Reps, asymmetry text, negative depth."""
     rows = []
     mass = {p["name"]: p["mass"] for p in players}
+    extra = plants.get("second_session") if plants else None
     for name, weeks in vals.items():
         for w in sorted(weeks):
             d = start + timedelta(days=7 * (w - 1) + 1)
@@ -305,21 +329,11 @@ def forcedecks_rows(rng, players, start, vals, plants):
             if plants and name == plants["inches"] and w == 9:
                 v = round(v * IN, 1)                                       # centimetres typed into the inches column
             for c in range(copies):
-                h_cm = v * IN
-                bw = mass[name]
-                asym1 = f"{rng.uniform(0.5, 12):.1f} {rng.choice('LR')}"
-                asym2 = f"{rng.randint(1, 30)} {rng.choice('LR')}"
-                if plants and name == plants["asym_unreadable"] and w == 5:
-                    asym1 = "n/a"
-                hour = rng.randint(1, 5)
-                rows.append([name, "", "CMJ", mdy(d), f"{hour}:{rng.randint(0, 59):02d} PM", bw, reps, "", 0, v,
-                             round(rng.uniform(0.2, 0.6), 2), round(bw * rng.uniform(30, 45)), round(h_cm * rng.uniform(1.3, 1.6), 1),
-                             rng.randint(1, 9), round(bw * rng.uniform(10, 13)), round(bw * rng.uniform(10, 13)),
-                             round(bw * rng.uniform(15, 25)), round(bw * rng.uniform(15, 25)), rng.randint(240, 330),
-                             round(bw * rng.uniform(2.0, 2.6), 1), round(bw * rng.uniform(16, 19)),
-                             round(-rng.uniform(20, 36), 1), round(rng.uniform(120, 170), 1), rng.randint(500, 700),
-                             round(rng.uniform(0.4, 0.7), 2), asym1, asym2, round(bw * rng.uniform(50, 70)),
-                             round(bw * rng.uniform(13, 16), 1)])
+                unreadable = "n/a" if plants and name == plants["asym_unreadable"] and w == 5 else None
+                rows.append(forcedecks_row(rng, name, d, mass[name], reps, v, unreadable))
+            if extra and name == extra["player"] and w == extra["week"]:
+                # its own random stream, so adding this row leaves every other value in the files unchanged
+                rows.append(forcedecks_row(random.Random(SEED + 1), name, d + timedelta(days=2), mass[name], 3, extra["inches"]))
     return rows
 
 
@@ -333,27 +347,31 @@ def season_flags(data, k):
     swc = METHOD["swc_multiplier"] * statistics.stdev(baseline.values())
     flags = []
     for n, d in days.items():
-        for w, v in d[BASELINE_DAYS:]:
+        for (w, s), v in d[BASELINE_DAYS:]:
             drop = baseline[n] - v
             if drop > swc and drop > k * te:
-                flags.append({"player": n, "week": w, "drop_cm": round(drop, 2)})
-    return sorted(flags, key=lambda f: (f["week"], f["player"]))
+                flags.append({"player": n, "week": w, "session": s, "drop_cm": round(drop, 2)})
+    return sorted(flags, key=lambda f: (f["week"], f["session"], f["player"]))
 
 
 def trials_after_exclusions(jumps, plants):
     """The per-trial data as cmj_flags.py uses it: the duplicated day and the value in inches left out."""
-    data = {n: {w: list(t) for w, t in d.items()} for n, d in jumps.items()}
-    data[plants["two_trials"]][6] = data[plants["two_trials"]][6][:2]
-    del data[plants["duplicated_day"]][7]
-    del data[plants["inches"]][9][1]
+    data = {n: {(w, 1): list(t) for w, t in d.items()} for n, d in jumps.items()}
+    data[plants["two_trials"]][(6, 1)] = data[plants["two_trials"]][(6, 1)][:2]
+    del data[plants["duplicated_day"]][(7, 1)]
+    del data[plants["inches"]][(9, 1)][1]
+    extra = plants["second_session"]
+    data[extra["player"]][(extra["week"], 2)] = list(extra["trials"])
     return data
 
 
 def forcedecks_after_exclusions(vals, plants):
     """The per-test data as cmj_flags.py uses it: the duplicated day and the centimetres-in-inches value left out."""
-    data = {n: {w: [to_coded_cm(v)] for w, v in d.items()} for n, d in vals.items()}
-    del data[plants["duplicated_day"]][7]
-    del data[plants["inches"]][9]
+    data = {n: {(w, 1): [to_coded_cm(v)] for w, v in d.items()} for n, d in vals.items()}
+    del data[plants["duplicated_day"]][(7, 1)]
+    del data[plants["inches"]][(9, 1)]
+    extra = plants["second_session"]
+    data[extra["player"]][(extra["week"], 2)] = [to_coded_cm(extra["inches"])]
     return data
 
 
@@ -362,6 +380,7 @@ def forcedecks_after_exclusions(vals, plants):
 def flags_per_week(flags):
     weeks = sorted({f["week"] for f in flags})
     return {str(w): sum(f["week"] == w for f in flags) for w in weeks}
+
 
 
 def flag_answers(data, decoy):
@@ -436,6 +455,11 @@ def main(out_dir=None, expected_dir=None):
     plants["thresholds_trials"] = {k: round(v, 3) for k, v in squad1.items() if isinstance(v, float)}
     plants["decoy_drop"] = plants["decoy_drop_forcedecks"]
     plants["flag_drops"] = [round(est1[n] - statistics.fmean(jumps1[n][CHOSEN_WEEK]), 2) for n in plants["flagged"]]
+    # a real second session in one week, close to the player's baseline so it does not flag
+    extra_name = outfield[8]["name"]
+    extra_trials = exact_trials(est1[extra_name] + 0.3)
+    plants["second_session"] = {"player": extra_name, "week": SECOND_SESSION_WEEK, "trials": extra_trials,
+                                "inches": round(statistics.fmean(extra_trials) / IN, 1)}
     write_csv(os.path.join(OUT, "cmj_trials_season1.csv"), TRIAL_COLS, trial_rows(rng, s1, SEASONS[1], jumps1, plants))
     write_csv(os.path.join(OUT, "cmj_season1.csv"), FORCEDECKS_COLS, forcedecks_rows(rng, s1, SEASONS[1], fd1, plants))
 
@@ -461,6 +485,7 @@ def main(out_dir=None, expected_dir=None):
         "decoy_not_flagged": plants["decoy"],
         "not_enough_data": plants["not_enough"],
         "duplicated_test_day": {"player": plants["duplicated_day"], "week": 7},
+        "two_sessions_in_one_week": {"player": plants["second_session"]["player"], "week": SECOND_SESSION_WEEK, "sessions": [1, 2]},
     }
     answers = {
         "note": "All names are made up. Codes are random on every deidentify.py run, so answers are given by name; "
@@ -514,6 +539,7 @@ def main(out_dir=None, expected_dir=None):
           f"- Not enough data: {tr['not_enough_data']} (tested in weeks 7 and 8 only)",
           f"- Only 2 trials: {tr['two_trials_only']['player']}, week 6",
           f"- Duplicated test day: {tr['duplicated_test_day']['player']}, week 7 (trials 1,2,3,1,2,3; day excluded)",
+          f"- Two real sessions in one week: {tr['two_sessions_in_one_week']['player']}, week {tr['two_sessions_in_one_week']['week']} (two test days, not a duplicate; no flag)",
           f"- Value in inches: {tr['value_in_inches']['player']}, week 9, trial 2 (excluded; day then has 2 trials)",
           f"- Thresholds when the data were generated: TE {tr['thresholds_at_generation_cm']['te']} cm, "
           f"SWC {tr['thresholds_at_generation_cm']['swc']} cm, k x TE {tr['thresholds_at_generation_cm']['k_te']} cm",
@@ -525,6 +551,7 @@ def main(out_dir=None, expected_dir=None):
           f"- Not enough data: {fdk['not_enough_data']} (tested in weeks 7 and 8 only)",
           f"- Reps = 2: {fdk['reps_2']['player']}, week 6 (a note; trials are not in a per-test export)",
           f"- Duplicated test day: {fdk['duplicated_test_day']['player']}, week 7 (two rows; day excluded)",
+          f"- Two real sessions in one week: {fdk['two_sessions_in_one_week']['player']}, week {fdk['two_sessions_in_one_week']['week']} (two test days, not a duplicate; no flag)",
           f"- Centimetres typed into the inches column: {fdk['cm_typed_into_inches_column']['player']}, week 9 (excluded; day left out)",
           f"- Unreadable asymmetry value: {fdk['unreadable_asymmetry_value']['player']}, week 5 (deidentify.py warning)",
           f"- Thresholds when the data were generated: TE {fdk['thresholds_at_generation_cm']['te']} cm, "
@@ -534,10 +561,11 @@ def main(out_dir=None, expected_dir=None):
           f"- Conflicting heights: {d['conflicting_heights']['player']} ({d['conflicting_heights']['heights_cm'][0]} and "
           f"{d['conflicting_heights']['heights_cm'][1]} cm) in gps_season1.csv",
           f"- Name variant pair: {d['name_variant_pair'][0]} and {d['name_variant_pair'][1]} in gps_season1.csv",
-          f"- Ambiguous date: {d['ambiguous_date_present']} (the run stops if date_format is blank)",
+          f"- Ambiguous date in the file: {d['ambiguous_date_present']}",
           f"- Notes column naming a coach: {d['notes_column_with_a_name']['name']} in wellness_season1.csv (dropped by the default settings; "
           f"warned about if kept)",
           f"- Unique goalkeeper: {d['unique_goalkeeper']} (athlete-level warning in gps and wellness; row-level warning for the week-6 injury)",
+          "- Blank date_format: the run stops and asks for one (dates like 09/10/2024 read two ways)",
           "- ForceDecks file: jump height converted from inches to cm, Additional Load from lb to kg, asymmetry columns split into number and side",
           "", "## Season 2", f"- {len(answers['season2']['left_after_season1'])} players left, {len(answers['season2']['joined_in_season2'])} joined "
           f"({answers['season2']['turnover_percent']}% turnover). No planted problems."]
