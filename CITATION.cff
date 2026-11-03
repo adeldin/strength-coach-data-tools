@@ -15,6 +15,7 @@ identifiers:
 authors:
   - family-names: Deldin
     given-names: Anthony
+    orcid: "https://orcid.org/0000-0002-0940-9246"
     affiliation: "Loyola University Chicago"
 repository-code: "https://github.com/adeldin/strength-coach-data-tools"
 keywords:
