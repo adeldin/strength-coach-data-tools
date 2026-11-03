@@ -2,9 +2,13 @@
 cmj_flags.py  -  flag meaningful drops in countermovement jump (CMJ) height, one athlete at a time.
 
 The method, step by step:
-  1. Read a CMJ export with one row per trial: athlete code, test day (a date or a week number),
-     trial number, jump height in cm. The coded file written by deidentify.py works as it is.
-  2. Test-day value = the mean of that athlete's valid trials on that day.
+  1. Read a CMJ export. Either kind works:
+       per-trial   one row per jump (athlete, test day, trial number, jump height)   <- better: all checks run
+       per-test    one row per test day with a Reps column (the VALD ForceDecks layout)
+     The coded file written by deidentify.py works as it is. Jump height may be in cm or inches; the
+     unit is read from the heading's brackets and inches are converted to cm.
+  2. Test-day value = the mean of that athlete's valid trials on that day (per-trial), or the row's
+     value (per-test).
   3. Baseline = the mean of each athlete's first N test days (default 4).
   4. Typical error (TE) = the day-to-day noise, pooled across the squad: collect every athlete's
      differences between consecutive baseline days, then TE = SD of those differences / sqrt(2).
@@ -19,13 +23,13 @@ and real drops are missed. Every threshold below is an adjustable choice, not a 
 
 How to run it (from the folder that holds this file):
     python cmj_flags.py
-    python cmj_flags.py --input coded_output/coded_cmj_season1.csv
+    python cmj_flags.py --input coded_output/coded_cmj_trials_season1.csv
     python cmj_flags.py --explain ATH-K7Q2MX        (one athlete's calculation, step by step)
 
 Needs Python 3.10 or newer. Standard library only. No network calls. Never changes the input file.
 """
 
-SCRIPT_VERSION = "0.1.0"
+SCRIPT_VERSION = "0.2.0"
 
 # =====================================================================================================
 # SETTINGS  -  edit these.
@@ -37,15 +41,19 @@ SETTINGS = {
     # Where the results CSV and the report go. Created if missing. Must not be the input's folder.
     "output_folder": "cmj_output",
 
-    # Column headings, spelled exactly as they appear in the file.
+    # Column headings. Spaces at the ends and the unit in brackets are ignored when matching, so
+    # "Jump Height (Imp-Mom)" matches both "Jump Height (Imp-Mom) in Inches [in]" and
+    # "Jump Height (Imp-Mom) [cm]". The unit itself is read from the file's heading.
     "athlete_column": "Athlete Code",
     "day_column": "Week",                 # a week number, or a date
     "day_format": "",                     # leave "" for week numbers or year-month-day dates;
                                           # set e.g. "%m/%d/%Y" if the day column holds dates like 08/05/2024
-    "trial_column": "Trial",
-    "jump_height_column": "Jump Height (cm)",
+    "jump_height_column": "Jump Height (Imp-Mom)",
+    "trial_column": "",                   # per-trial exports: the trial or rep number column (e.g. "Trial")
+    "reps_column": "Reps",                # per-test exports: the column that counts the reps in the test
     "test_type_column": "Test Type",      # "" if there is no such column
     "test_type_value": "CMJ",             # only rows with this test type are used ("" = use every row)
+    "depth_column": "Countermovement Depth",   # optional; exported as a negative number (downward). "" to skip
 
     # The method's numbers. Defaults are the ones described in the article.
     "expected_trials_per_day": 3,
@@ -61,6 +69,9 @@ SETTINGS = {
     # A trial that differs from the middle trial of its day by more than this share is reported (not excluded).
     # Catches a value typed in inches that still falls inside the plausible range (any jump over 38 cm).
     "within_day_warning_fraction": 0.30,
+    # Countermovement depth is checked on its size regardless of sign (warning only, never excluded).
+    "depth_plausible_min_cm": 10,
+    "depth_plausible_max_cm": 60,
 }
 
 # =====================================================================================================
@@ -72,10 +83,14 @@ import csv
 import json
 import math
 import os
+import re
 import statistics
 import sys
 from collections import defaultdict
 from datetime import datetime
+
+LENGTH_UNITS = {"cm": 1.0, "in": 2.54, "inch": 2.54, "inches": 2.54, "mm": 0.1}
+UNIT_GROUP = re.compile(r"[\[(]([^\[\]()]+)[\])]")
 
 
 class StopRun(Exception):
@@ -87,6 +102,39 @@ def to_float(text):
         return float(str(text).strip())
     except ValueError:
         return None
+
+
+def unit_of(header):
+    groups = [g.strip().casefold() for g in UNIT_GROUP.findall(header)]
+    for g in reversed(groups):
+        if g in LENGTH_UNITS or g in {"kg", "lb", "n", "w", "w/kg", "m/s", "n/s", "ms", "s", "%"}:
+            return g
+    return ""
+
+
+def bare(header):
+    """A heading without its unit group, the phrase 'in Inches', end spaces or case: used only for matching."""
+    h = header.strip()
+    u = unit_of(h)
+    if u:
+        h = re.sub(r"[\[(]\s*" + re.escape(u) + r"\s*[\])]\s*$", "", h, flags=re.I)
+    h = re.sub(r"\s+in\s+inches\b", "", h, flags=re.I)
+    return " ".join(h.split()).casefold()
+
+
+def find_column(setting, headers, what, required=True):
+    """The file's heading that matches the setting, exactly or after removing units and end spaces."""
+    if not setting:
+        return None
+    exact = [h for h in headers if h.strip() == setting.strip()]
+    if exact:
+        return exact[0]
+    loose = [h for h in headers if bare(h) == bare(setting)]
+    if len(loose) == 1:
+        return loose[0]
+    if required:
+        raise StopRun(f"The {what} column '{setting}' is not in the file. Headings in the file: {[h.strip() for h in headers]}")
+    return None
 
 
 def day_key(raw, day_format):
@@ -118,73 +166,121 @@ def sd(values):
 # ------------------------------------------------------------------ reading and checking
 
 def read_trials(settings):
-    """Returns (trials, exclusions, counts). trials: {athlete: {day: [heights]}} after exclusions."""
+    """Returns (trials, exclusions, counts, info). trials: {athlete: {day: [heights in cm]}} after exclusions."""
     s = settings
     path = s["input_file"]
     if not os.path.exists(path):
         raise StopRun(f"Input file not found: {path}")
     with open(path, newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
-        headers = reader.fieldnames or []
+        raw_headers = reader.fieldnames or []
         rows = list(reader)
-    need = [s["athlete_column"], s["day_column"], s["trial_column"], s["jump_height_column"]]
-    if s["test_type_column"]:
-        need.append(s["test_type_column"])
-    missing = [c for c in need if c not in headers]
-    if missing:
-        raise StopRun(f"These columns are in SETTINGS but not in the file: {missing}. Headings must match exactly.")
+    headers = [h.strip() for h in raw_headers]
+    rows = [{h: (r.get(rh) or "") for rh, h in zip(raw_headers, headers)} for r in rows]
 
-    raw = defaultdict(lambda: defaultdict(list))     # athlete -> day -> [(trial, height, row_num)]
+    ath_col = find_column(s["athlete_column"], headers, "athlete")
+    day_col = find_column(s["day_column"], headers, "test day")
+    jump_col = find_column(s["jump_height_column"], headers, "jump height")
+    type_col = find_column(s.get("test_type_column", ""), headers, "test type", required=False)
+    trial_col = find_column(s.get("trial_column", ""), headers, "trial", required=False)
+    reps_col = find_column(s.get("reps_column", ""), headers, "reps", required=False)
+    depth_col = find_column(s.get("depth_column", ""), headers, "depth", required=False)
+    if trial_col:
+        mode = "per-trial"
+    elif reps_col:
+        mode = "per-test"
+    else:
+        raise StopRun("Could not tell whether this is a per-trial or a per-test export: neither trial_column nor "
+                      f"reps_column is in the file. Set one of them in SETTINGS. Headings: {headers}")
+
+    unit = unit_of(jump_col)
+    if unit not in LENGTH_UNITS:
+        raise StopRun(f"The jump height heading '{jump_col}' does not say its unit. Add [cm] or [in] to the heading in the file.")
+    factor = LENGTH_UNITS[unit]
+    depth_unit, depth_factor = "", 1.0
+    if depth_col:
+        depth_unit = unit_of(depth_col)
+        if depth_unit not in LENGTH_UNITS:
+            raise StopRun(f"The depth heading '{depth_col}' does not say its unit. Add [cm] or [in] to the heading, or set depth_column to ''.")
+        depth_factor = LENGTH_UNITS[depth_unit]
+    info = {"mode": mode, "jump_column": jump_col, "jump_unit": unit, "converted": factor != 1.0,
+            "depth_column": depth_col, "depth_unit": depth_unit, "columns": dict(athlete=ath_col, day=day_col, trial=trial_col, reps=reps_col)}
+
+    raw = defaultdict(lambda: defaultdict(list))     # athlete -> day -> [(trial label, height cm, raw value, row, reps, depth cm)]
     exclusions = []
     n_rows = 0
     for row_num, r in enumerate(rows, start=2):
-        if s["test_type_column"] and s["test_type_value"] and \
-                str(r[s["test_type_column"]]).strip().casefold() != s["test_type_value"].casefold():
+        if type_col and s.get("test_type_value") and str(r[type_col]).strip().casefold() != s["test_type_value"].casefold():
             continue
         n_rows += 1
-        ath = str(r[s["athlete_column"]]).strip()
-        day = day_key(r[s["day_column"]], s["day_format"])
-        h = to_float(r[s["jump_height_column"]])
-        if not ath or day is None or h is None:
-            exclusions.append((ath or "(blank)", str(r[s["day_column"]]), f"row {row_num}: blank or unreadable athlete, day or jump height"))
+        ath = str(r[ath_col]).strip()
+        day = day_key(r[day_col], s["day_format"])
+        v = to_float(r[jump_col])
+        if not ath or day is None or v is None:
+            exclusions.append((ath or "(blank)", str(r[day_col]), f"row {row_num}: blank or unreadable athlete, day or jump height"))
             continue
-        raw[ath][day].append((str(r[s["trial_column"]]).strip(), h, row_num))
+        label = str(r[trial_col]).strip() if trial_col else "test"
+        reps = to_float(r[reps_col]) if reps_col else None
+        depth = to_float(r[depth_col]) * depth_factor if depth_col and to_float(r[depth_col]) is not None else None
+        raw[ath][day].append((label, v * factor, v, row_num, reps, depth))
 
     trials = defaultdict(dict)
+    reps_by_day, depth_warn = {}, []
     lo, hi = float(s["plausible_min_cm"]), float(s["plausible_max_cm"])
+    dlo, dhi = float(s.get("depth_plausible_min_cm", 10)), float(s.get("depth_plausible_max_cm", 60))
+    expected = int(s["expected_trials_per_day"])
     for ath, days in raw.items():
         for day, items in days.items():
-            trial_ids = [t for t, _, _ in items]
-            dup = len(trial_ids) != len(set(trial_ids)) or len(items) > 2 * int(s["expected_trials_per_day"]) - 1
+            labels = [t for t, *_ in items]
+            if mode == "per-test":
+                dup = len(items) > 1
+            else:
+                dup = len(labels) != len(set(labels)) or len(items) > 2 * expected - 1
             if dup:
-                exclusions.append((ath, str(day), f"duplicated test day: {len(items)} trials with trial numbers "
-                                                  f"{sorted(trial_ids)}; the whole day is left out until resolved"))
+                exclusions.append((ath, str(day), f"duplicated test day: {len(items)} rows"
+                                   + (f" with trial numbers {sorted(labels)}" if mode == "per-trial" else "")
+                                   + "; the whole day is left out until resolved"))
                 continue
             good = []
-            for t, h, row_num in items:
-                if lo <= h <= hi:
-                    good.append(h)
+            for t, h_cm, v_raw, row_num, reps, depth in items:
+                if depth is not None and not (dlo <= abs(depth) <= dhi):
+                    depth_warn.append((ath, str(day), f"countermovement depth {depth:.1f} cm is outside {dlo:g} to {dhi:g} cm in size (kept; check the row)"))
+                if lo <= h_cm <= hi:
+                    good.append(h_cm)
+                    if reps is not None:
+                        reps_by_day[(ath, day)] = reps
+                    continue
+                if unit == "cm" and lo <= h_cm * 2.54 <= hi:
+                    note = "looks like inches typed into a cm column (x 2.54 would be plausible)"
+                elif unit != "cm" and lo <= v_raw <= hi:
+                    note = f"looks like centimetres typed into the {unit} column (read as {h_cm:.1f} cm)"
+                elif unit == "cm" and lo <= h_cm / 2.54 <= hi:
+                    note = "outside the plausible range; / 2.54 would be plausible, so it may be a cm value that was typed into an inches column before conversion"
                 else:
-                    note = "looks like inches (x 2.54 would be plausible)" if lo <= h * 2.54 <= hi else "outside the plausible range"
-                    if s["exclude_implausible"]:
-                        exclusions.append((ath, str(day), f"trial {t} = {h} cm (row {row_num}): {note}; left out"))
-                    else:
-                        exclusions.append((ath, str(day), f"trial {t} = {h} cm (row {row_num}): {note}; KEPT because exclude_implausible is False"))
-                        good.append(h)
+                    note = f"outside the plausible range ({h_cm:.1f} cm after conversion)" if factor != 1.0 else "outside the plausible range"
+                shown = f"{v_raw:g} {unit}" if factor != 1.0 else f"{v_raw:g} cm"
+                if s["exclude_implausible"]:
+                    exclusions.append((ath, str(day), f"{'trial ' + t if mode == 'per-trial' else 'value'} = {shown} (row {row_num}): {note}; left out"))
+                else:
+                    exclusions.append((ath, str(day), f"{'trial ' + t if mode == 'per-trial' else 'value'} = {shown} (row {row_num}): {note}; KEPT because exclude_implausible is False"))
+                    good.append(h_cm)
             if good:
                 trials[ath][day] = good
             else:
-                exclusions.append((ath, str(day), "no usable trials on this day; day left out"))
+                exclusions.append((ath, str(day), "no usable value on this day; day left out"))
     counts = {"rows_read": n_rows, "athletes": len(trials),
               "test_days": sum(len(d) for d in trials.values()),
               "trials": sum(len(v) for d in trials.values() for v in d.values())}
-    return trials, exclusions, counts
+    info["reps_by_day"] = reps_by_day
+    info["depth_warnings"] = depth_warn
+    return trials, exclusions, counts, info
 
 
 # ------------------------------------------------------------------ the method
 
-def analyse(trials, settings):
+def analyse(trials, settings, info=None):
     """Returns the per-athlete results and the squad thresholds."""
+    info = info or {"mode": "per-trial", "reps_by_day": {}}
     n_base = int(settings["baseline_days"])
     k = float(settings["k"])
     expected = int(settings["expected_trials_per_day"])
@@ -194,21 +290,28 @@ def analyse(trials, settings):
         ordered = sorted(days)
         day_means = {d: statistics.fmean(days[d]) for d in ordered}
         for d in ordered:
-            if len(days[d]) < expected:
-                warnings.append((ath, str(d), f"only {len(days[d])} trial(s) on this day (expected {expected})"))
-            if len(days[d]) >= 2:
-                mid = statistics.median(days[d])
-                frac = float(settings.get("within_day_warning_fraction", 0.30))
-                odd = [h for h in days[d] if mid and abs(h - mid) / mid > frac]
-                if odd:
-                    warnings.append((ath, str(d), f"trial value(s) {odd} differ from the day's middle value ({mid:.1f} cm) by more than "
-                                                  f"{int(frac * 100)}%; check for a typing error or a value in inches (kept in the calculation)"))
+            if info["mode"] == "per-trial":
+                if len(days[d]) < expected:
+                    warnings.append((ath, str(d), f"only {len(days[d])} trial(s) on this day (expected {expected})"))
+                if len(days[d]) >= 2:
+                    mid = statistics.median(days[d])
+                    frac = float(settings.get("within_day_warning_fraction", 0.30))
+                    odd = [round(h, 1) for h in days[d] if mid and abs(h - mid) / mid > frac]
+                    if odd:
+                        warnings.append((ath, str(d), f"trial value(s) {odd} cm differ from the day's middle value ({mid:.1f} cm) by more than "
+                                                      f"{int(frac * 100)}%; check for a typing error or a value in inches (kept in the calculation)"))
+            else:
+                reps = info["reps_by_day"].get((ath, d))
+                if reps is not None and reps < expected:
+                    warnings.append((ath, str(d), f"the Reps column shows {reps:g} rep(s) in this test (expected {expected}); "
+                                                  f"the individual trials are not in a per-test export, so this is a note only"))
         base_days = ordered[:n_base]
         enough = len(base_days) >= n_base
         base_mean = statistics.fmean(day_means[d] for d in base_days) if enough else None
         diffs = [day_means[base_days[i + 1]] - day_means[base_days[i]] for i in range(len(base_days) - 1)] if enough else []
         athletes[ath] = {"days": ordered, "trials": days, "day_means": day_means, "baseline_days": base_days,
                          "baseline_mean": base_mean, "baseline_diffs": diffs, "enough": enough}
+    warnings += info.get("depth_warnings", [])
 
     pooled_diffs = [x for a in athletes.values() for x in a["baseline_diffs"]]
     te_pooled = (sd(pooled_diffs) / math.sqrt(2)) if len(pooled_diffs) >= 2 else None
@@ -230,7 +333,8 @@ def analyse(trials, settings):
         a["te"], a["te_source"] = te, te_source
         for d in a["days"]:
             val = a["day_means"][d]
-            row = {"athlete": ath, "day": d, "test_day_value": round(val, 2), "trials": len(a["trials"][d]),
+            n_tr = len(a["trials"][d]) if info["mode"] == "per-trial" else info["reps_by_day"].get((ath, d), "")
+            row = {"athlete": ath, "day": d, "test_day_value": round(val, 2), "trials": n_tr,
                    "baseline": None, "drop": None, "swc": None, "k_te": None, "status": ""}
             if not a["enough"]:
                 row["status"] = "not enough data"
@@ -250,7 +354,7 @@ def analyse(trials, settings):
 
 # ------------------------------------------------------------------ output
 
-def write_outputs(settings, results, squad, warnings, exclusions, counts, input_file):
+def write_outputs(settings, results, squad, warnings, exclusions, counts, info, input_file):
     out_dir = settings["output_folder"]
     abs_in = os.path.abspath(input_file)
     if os.path.abspath(out_dir) == os.path.dirname(abs_in):
@@ -262,11 +366,13 @@ def write_outputs(settings, results, squad, warnings, exclusions, counts, input_
     for f in (results_file, report_file):
         if os.path.abspath(f) == abs_in:
             raise StopRun("Refusing to run: an output path equals the input path.")
+    per_trial = info["mode"] == "per-trial"
     with open(results_file, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["athlete_code", "test_day", "test_day_value_cm", "trials", "baseline_cm", "drop_cm", "swc_cm", "k_x_te_cm", "status"])
+        w.writerow(["athlete_code", "test_day", "test_day_value_cm", "trials" if per_trial else "reps", "baseline_cm", "drop_cm",
+                    "swc_cm", "k_x_te_cm", "status"])
         for r in results:
-            w.writerow([r["athlete"], r["day"], r["test_day_value"], r["trials"],
+            w.writerow([r["athlete"], r["day"], r["test_day_value"], r["trials"] if r["trials"] != "" else "",
                         "" if r["baseline"] is None else r["baseline"], "" if r["drop"] is None else r["drop"],
                         "" if r["swc"] is None else r["swc"], "" if r["k_te"] is None else r["k_te"], r["status"]])
 
@@ -276,8 +382,14 @@ def write_outputs(settings, results, squad, warnings, exclusions, counts, input_
     lines = [f"cmj_flags.py version {SCRIPT_VERSION}   run on {datetime.now().strftime('%Y-%m-%d %H:%M')}",
              f"Input: {input_file}", "",
              "WHAT WAS READ",
+             f"  Export type: {info['mode']} "
+             + ("(one row per jump; all checks run)." if per_trial else
+                "(one row per test with a Reps column). Trial-level checks could not be run: the number of trials and the "
+                "spread between trials on a day are not in this kind of export. A per-trial export is better when you can get one."),
+             f"  Jump height column: '{info['jump_column']}', read in {info['jump_unit']}"
+             + (f" and converted to cm (x {LENGTH_UNITS[info['jump_unit']]})." if info["converted"] else "."),
              f"  {counts['rows_read']} rows -> {counts['athletes']} athletes, {counts['test_days']} test days, "
-             f"{counts['trials']} trials after exclusions.",
+             f"{counts['trials']} {'trials' if per_trial else 'test values'} after exclusions.",
              "",
              "SQUAD THRESHOLDS",
              f"  Baseline = first {settings['baseline_days']} test days per athlete "
@@ -308,24 +420,25 @@ def write_outputs(settings, results, squad, warnings, exclusions, counts, input_
     return results_file, report_file, lines
 
 
-def explain(code, athletes, squad, settings):
+def explain(code, athletes, squad, settings, info):
     """One athlete's calculation, step by step, so a coach can check it by hand."""
     if code not in athletes:
         return [f"No athlete with code '{code}' in the file."]
     a = athletes[code]
-    out = [f"EXPLAIN {code}", f"  Test days ({len(a['days'])}): {', '.join(str(d) for d in a['days'])}"]
+    word = "trials" if info["mode"] == "per-trial" else "test value"
+    out = [f"EXPLAIN {code}   (all values in cm)", f"  Test days ({len(a['days'])}): {', '.join(str(d) for d in a['days'])}"]
     if not a["enough"]:
         out.append(f"  Fewer than {settings['baseline_days']} test days, so: not enough data. No flag can be raised.")
         return out
     out.append(f"  Baseline days (first {settings['baseline_days']}):")
     for d in a["baseline_days"]:
         tr = ", ".join(f"{h:.1f}" for h in a["trials"][d])
-        out.append(f"    day {d}: trials {tr}  -> day mean {a['day_means'][d]:.2f} cm")
-    out.append(f"  Baseline mean = {a['baseline_mean']:.2f} cm")
+        out.append(f"    day {d}: {word} {tr}  -> day value {a['day_means'][d]:.2f}")
+    out.append(f"  Baseline mean = {a['baseline_mean']:.2f}")
     out.append("  Consecutive-day differences in the baseline: " + ", ".join(f"{x:+.2f}" for x in a["baseline_diffs"])
                + f"   (these feed the {a['te_source']} TE)")
-    out.append(f"  TE used = {a['te']:.2f} cm ({a['te_source']}); k x TE = {settings['k']} x {a['te']:.2f} = {settings['k'] * a['te']:.2f} cm; "
-               f"SWC = {squad['swc']:.2f} cm")
+    out.append(f"  TE used = {a['te']:.2f} ({a['te_source']}); k x TE = {settings['k']} x {a['te']:.2f} = {settings['k'] * a['te']:.2f}; "
+               f"SWC = {squad['swc']:.2f}")
     out.append("  Later test days:")
     for d in a["days"][len(a["baseline_days"]):]:
         tr = ", ".join(f"{h:.1f}" for h in a["trials"][d])
@@ -334,21 +447,21 @@ def explain(code, athletes, squad, settings):
         over_swc = drop > squad["swc"]
         over_kte = drop > settings["k"] * a["te"]
         verdict = "FLAG" if (over_swc and over_kte) else "no flag"
-        out.append(f"    day {d}: trials {tr} -> mean {val:.2f}; drop = {a['baseline_mean']:.2f} - {val:.2f} = {drop:+.2f} cm; "
+        out.append(f"    day {d}: {word} {tr} -> {val:.2f}; drop = {a['baseline_mean']:.2f} - {val:.2f} = {drop:+.2f}; "
                    f"> SWC? {'yes' if over_swc else 'no'}; > k x TE? {'yes' if over_kte else 'no'}  => {verdict}")
     return out
 
 
 def run(settings, explain_code=None):
-    trials, exclusions, counts = read_trials(settings)
+    trials, exclusions, counts, info = read_trials(settings)
     if not trials:
         raise StopRun("No usable rows were read. Check the column settings and the test_type_value.")
-    results, squad, warnings, athletes = analyse(trials, settings)
-    results_file, report_file, lines = write_outputs(settings, results, squad, warnings, exclusions, counts, settings["input_file"])
-    out = {"results": results, "squad": squad, "warnings": warnings, "exclusions": exclusions, "counts": counts,
+    results, squad, warnings, athletes = analyse(trials, settings, info)
+    results_file, report_file, lines = write_outputs(settings, results, squad, warnings, exclusions, counts, info, settings["input_file"])
+    out = {"results": results, "squad": squad, "warnings": warnings, "exclusions": exclusions, "counts": counts, "info": info,
            "results_file": results_file, "report_file": report_file, "report": lines, "athletes": athletes}
     if explain_code:
-        out["explain"] = explain(explain_code, athletes, squad, settings)
+        out["explain"] = explain(explain_code, athletes, squad, settings, info)
     return out
 
 

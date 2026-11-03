@@ -4,12 +4,15 @@ make_synthetic_squad.py  -  build the made-up soccer squad used to demonstrate a
 Nothing here is real. Names come from a fixed list and are combined at random; any match with a real
 person is a coincidence. The random seed is fixed, so running this again produces identical files.
 
-It writes, to synthetic_data/:
-    gps_season1.csv, cmj_season1.csv, wellness_season1.csv     (28 players, 14 weeks)
-    gps_season2.csv, cmj_season2.csv, wellness_season2.csv     (8 players replaced: 29% turnover)
+It writes, to synthetic_data/ (28 players, 14 weeks per season; 8 players replaced in season 2 = 29% turnover):
+    gps_season1.csv / gps_season2.csv              example GPS layout
+    wellness_season1.csv / wellness_season2.csv    example wellness layout
+    cmj_season1.csv / cmj_season2.csv              REAL VALD ForceDecks layout: one row per test, Reps column,
+                                                   jump height in INCHES, asymmetry values like "6.3 L",
+                                                   countermovement depth negative
+    cmj_trials_season1.csv / cmj_trials_season2.csv   example per-trial layout: one row per jump, in cm
 and, to expected_output/:
-    expected_answers.json      every planted problem and the expected flags, by player name
-    expected_answers.md        the same, written out for reading
+    expected_answers.json / expected_answers.md    every planted problem and the expected flags, by player name
 
 Planted de-identification problems (season 1):
     - one player name recorded with two heights 8 cm apart (two people under one name, or a typo)
@@ -17,10 +20,11 @@ Planted de-identification problems (season 1):
     - dates written month/day/year, including 09/10/2024, which reads two ways if no format is set
     - a wellness Notes column that mentions a (made-up) coach by name
     - one goalkeeper, unique on position
-Planted CMJ problems (season 1):
-    - one player with only 2 trials on one test day
-    - one player whose test day was entered twice (trials 1,2,3,1,2,3)
-    - one trial typed in inches
+    - one asymmetry value that cannot be read ("n/a") in the ForceDecks file
+Planted CMJ problems (season 1, in BOTH force plate files unless stated):
+    - one player with only 2 trials (per-trial file) / Reps = 2 (ForceDecks file) on one test day
+    - one player whose test day was entered twice
+    - one value in the wrong unit: inches typed into the cm file; centimetres typed into the inches file
     - in week 8, EXACTLY two players drop enough to flag; one decoy drops past the SWC but not past
       k x TE; one player has too few baseline days
 
@@ -46,6 +50,7 @@ SEASONS = {1: date(2024, 8, 5), 2: date(2025, 8, 4)}
 WEEKS = 14
 CHOSEN_WEEK = 8
 BASELINE_DAYS = 4
+IN = 2.54   # cm per inch
 
 FIRST = ["Amara", "Bence", "Carla", "Dario", "Elin", "Farid", "Greta", "Hana", "Ivo", "Jamal", "Kaia", "Luca",
          "Mira", "Nadia", "Oskar", "Pia", "Quentin", "Rosa", "Sven", "Tomas", "Uma", "Vera", "Wim", "Yara",
@@ -59,16 +64,24 @@ POSITIONS = ["GK"] + ["CB"] * 5 + ["LB", "RB", "LB", "RB", "DM"] + ["CM"] * 6 + 
 CLASS_YEARS = ["Freshman", "Sophomore", "Junior", "Senior"]
 SESSION_DAYS = {0: "Training", 2: "Training", 4: "Training", 5: "Match"}   # Mon, Wed, Fri, Sat
 WELLNESS_DAYS = [0, 1, 2, 3, 4]
-INJURY_WORDS = ["Injury", "Illness"]
 
-# column layouts: examples in the style of common systems, matching the examples in deidentify.py SETTINGS
+# Example layouts (not a specific vendor), matching the example profiles in deidentify.py SETTINGS
 GPS_COLS = ["Player Name", "Jersey Number", "Date", "Session Type", "Position", "Class Year", "Height (cm)",
             "Body Mass (kg)", "Total Distance (m)", "High Speed Running (m)", "Sprint Distance (m)",
             "Max Velocity (km/h)", "Player Load", "Accelerations", "Decelerations", "Duration (min)", "Device ID"]
-CMJ_COLS = ["Name", "Date", "Test Type", "Trial", "Jump Height (cm)", "Peak Power (W)", "RSI-modified",
-            "Contraction Time (ms)", "Body Mass (kg)"]
+TRIAL_COLS = ["Name", "Date", "Test Type", "Trial", "Jump Height (cm)", "Peak Power (W)", "RSI-modified",
+              "Contraction Time (ms)", "Body Mass (kg)"]
 WELL_COLS = ["Athlete", "Date", "Position", "Sleep Hours", "Sleep Quality (1-5)", "Fatigue (1-5)", "Soreness (1-5)",
              "Stress (1-5)", "Mood (1-5)", "Injury/Illness", "Notes"]
+# REAL layout: the header row of a VALD ForceDecks CMJ export, exactly as exported (several headings end in a space)
+FORCEDECKS_COLS = ["Name", "ExternalId", "Test Type", "Date", "Time", "BW [KG]", "Reps", "Tags", "Additional Load [lb]",
+                   "Jump Height (Imp-Mom) in Inches [in] ", "RSI-modified [m/s] ", "Peak Landing Force [N] ",
+                   "Peak Power / BM [W/kg] ", "Concentric RFD [N/s] (L)", "Concentric Peak Force [N] (L)",
+                   "Concentric Peak Force [N] (R)", "Peak Landing Force [N] (L)", "Peak Landing Force [N] (R)",
+                   "Concentric Duration [ms] ", "Concentric Impulse [N s] ", "Concentric Mean Force [N] ",
+                   "Countermovement Depth [cm] ", "Contraction Time:Eccentric Duration [%] ", "Eccentric Duration [ms] ",
+                   "Flight Time:Contraction Time ", "Concentric Impulse % (Asym) (%)", "Peak Landing Force % (Asym) (%)",
+                   "Eccentric Deceleration RFD [N/s] ", "Eccentric Deceleration Mean Force [N] "]
 
 
 def mdy(d):
@@ -141,6 +154,8 @@ def wellness_rows(rng, players, start, plants):
     return rows
 
 
+# ------------------------------------------------------------------ CMJ data
+
 def exact_trials(target_mean):
     """Three one-decimal trial values whose mean is as close as possible to target_mean (within 0.02 cm)."""
     base = round(target_mean, 1)
@@ -153,54 +168,126 @@ def exact_trials(target_mean):
     return best[1]
 
 
-def cmj_rows(rng, players, start, plants):
-    """Trial-level CMJ data. With plants, week CHOSEN_WEEK is engineered so the expected answers are exact."""
-    trial_noise = 0.8        # cm, within a day
-    day_noise = 0.7          # cm, between baseline days
-    jumps = {}               # name -> {week: [trials]}
+METHOD = {"baseline_days": BASELINE_DAYS, "k": 1.5, "expected_trials_per_day": 3, "swc_multiplier": 0.2, "individual_te": False}
+
+
+def thresholds(data):
+    """Squad thresholds for {name: {week: [values in cm]}}, computed with cmj_flags' own method."""
+    _, squad, _, athletes = cmj_flags.analyse({n: {w: list(v) for w, v in d.items()} for n, d in data.items()}, METHOD)
+    return squad, {n: a["baseline_mean"] for n, a in athletes.items() if a["enough"]}
+
+
+def trial_data(rng, players, plants):
+    """Per-trial jump heights in cm: {name: {week: [3 trials]}}. Week CHOSEN_WEEK is engineered when plants are given."""
+    trial_noise, day_noise = 0.8, 0.7
+    jumps = {}
     for p in players:
         jumps[p["name"]] = {}
         for w in range(1, BASELINE_DAYS + 1):
             day_true = p["jump"] + rng.gauss(0, day_noise)
             jumps[p["name"]][w] = [round(day_true + rng.gauss(0, trial_noise), 1) for _ in range(3)]
-    squad = None
+    est = {p["name"]: p["jump"] for p in players}
     if plants:
-        # estimated baselines and the real thresholds, computed with the method in cmj_flags.py
-        trials = {n: {w: list(t) for w, t in d.items()} for n, d in jumps.items() if n != plants["not_enough"]}
-        _, squad, _, athletes = cmj_flags.analyse(trials, {"baseline_days": BASELINE_DAYS, "k": 1.5, "expected_trials_per_day": 3,
-                                                           "swc_multiplier": 0.2, "individual_te": False})
-        est = {n: a["baseline_mean"] for n, a in athletes.items()}
+        squad, est = thresholds({n: d for n, d in jumps.items() if n != plants["not_enough"]})
         plants["decoy_drop"] = round((squad["swc"] + squad["k_te"]) / 2, 2)
-        plants["thresholds"] = {k: round(v, 3) for k, v in squad.items() if isinstance(v, float)}
+        plants["thresholds_trials"] = {k: round(v, 3) for k, v in squad.items() if isinstance(v, float)}
     for p in players:
         name = p["name"]
         for w in range(BASELINE_DAYS + 1, WEEKS + 1):
             if plants and name == plants["not_enough"]:
                 continue
-            centre = (est[name] if plants else p["jump"]) + rng.uniform(-0.3, 0.6)
             if plants and w == CHOSEN_WEEK and (name in plants["flagged"] or name == plants["decoy"]):
                 drop = plants["decoy_drop"] if name == plants["decoy"] else plants["flag_drops"][plants["flagged"].index(name)]
                 jumps[name][w] = exact_trials(est[name] - drop)
                 continue
+            centre = est[name] + rng.uniform(-0.3, 0.6)
             jumps[name][w] = [round(centre + rng.uniform(-0.25, 0.25), 1) for _ in range(3)]
     if plants:
         ne = plants["not_enough"]
         jumps[ne] = {7: jumps[ne][1], 8: jumps[ne][2]}                     # tested only in weeks 7 and 8
-        jumps[plants["two_trials"]][6] = jumps[plants["two_trials"]][6][:2]
-        jumps[plants["duplicated_day"]][7] = jumps[plants["duplicated_day"]][7] * 2
-        inch = jumps[plants["inches"]][9]
-        inch[1] = round(inch[1] / 2.54, 1)                                   # typed in inches
+    return jumps
+
+
+def trial_rows(rng, players, start, jumps, plants):
+    """The per-trial file (cm), with its own planted problems."""
+    j = {n: {w: list(t) for w, t in d.items()} for n, d in jumps.items()}
+    dup = plants["duplicated_day"] if plants else None
+    if plants:
+        j[plants["two_trials"]][6] = j[plants["two_trials"]][6][:2]
+        j[dup][7] = j[dup][7] * 2
+        inch = j[plants["inches"]][9]
+        inch[1] = round(inch[1] / IN, 1)                                    # typed in inches
     rows = []
     mass = {p["name"]: p["mass"] for p in players}
-    for name, weeks in jumps.items():
+    for name, weeks in j.items():
         for w in sorted(weeks):
             d = start + timedelta(days=7 * (w - 1) + 1)                    # Tuesdays
             for i, h in enumerate(weeks[w]):
-                trial_no = i + 1 if not (plants and name == plants["duplicated_day"] and w == 7) else (i % 3) + 1
+                trial_no = (i % 3) + 1 if (name == dup and w == 7) else i + 1
                 rows.append([name, mdy(d), "CMJ", trial_no, h, round(mass[name] * h * 1.9 + rng.uniform(-80, 80)),
                              round(h / rng.uniform(600, 800), 3), rng.randint(550, 850), mass[name]])
-    return rows, squad
+    return rows
 
+
+def forcedecks_values(rng, jumps, plants):
+    """Per-test values in INCHES (one decimal): {name: {week: inches}}. The decoy is tuned so that, after
+    conversion back to cm, its week-8 drop sits between the SWC and k x TE despite the coarser rounding."""
+    vals = {n: {w: round(statistics.fmean(t) / IN, 1) for w, t in d.items()} for n, d in jumps.items()}
+    if not plants:
+        return vals, None
+    decoy = plants["decoy"]
+    for _ in range(60):
+        cm = {n: {w: [v * IN] for w, v in d.items() if n != decoy or w != CHOSEN_WEEK} for n, d in vals.items()}
+        squad, est = thresholds(cm)
+        target = (squad["swc"] + squad["k_te"]) / 2
+        v = round((est[decoy] - target) / IN, 1)
+        drop = est[decoy] - v * IN
+        if squad["swc"] + 0.004 < drop < squad["k_te"] - 0.004:
+            vals[decoy][CHOSEN_WEEK] = v
+            break
+        # nudge one baseline day of the decoy by 0.1 in (moves its baseline mean by 0.0635 cm) and try again
+        vals[decoy][1] = round(vals[decoy][1] + (0.1 if drop < target else -0.1), 1)
+    else:
+        raise RuntimeError("could not tune the decoy for the per-test file")
+    cm = {n: {w: [v * IN] for w, v in d.items()} for n, d in vals.items()}
+    squad, est = thresholds(cm)
+    plants["thresholds_forcedecks"] = {k: round(v, 3) for k, v in squad.items() if isinstance(v, float)}
+    plants["decoy_drop_forcedecks"] = round(est[decoy] - vals[decoy][CHOSEN_WEEK] * IN, 3)
+    return vals, squad
+
+
+def forcedecks_rows(rng, players, start, vals, plants):
+    """One row per test in the real ForceDecks layout. Reps, asymmetry text, negative depth."""
+    rows = []
+    mass = {p["name"]: p["mass"] for p in players}
+    for name, weeks in vals.items():
+        for w in sorted(weeks):
+            d = start + timedelta(days=7 * (w - 1) + 1)
+            copies = 2 if (plants and name == plants["duplicated_day"] and w == 7) else 1
+            reps = 2 if (plants and name == plants["two_trials"] and w == 6) else 3
+            v = weeks[w]
+            if plants and name == plants["inches"] and w == 9:
+                v = round(v * IN, 1)                                       # centimetres typed into the inches column
+            for c in range(copies):
+                h_cm = v * IN
+                bw = mass[name]
+                asym1 = f"{rng.uniform(0.5, 12):.1f} {rng.choice('LR')}"
+                asym2 = f"{rng.randint(1, 30)} {rng.choice('LR')}"
+                if plants and name == plants["asym_unreadable"] and w == 5:
+                    asym1 = "n/a"
+                hour = rng.randint(1, 5)
+                rows.append([name, "", "CMJ", mdy(d), f"{hour}:{rng.randint(0, 59):02d} PM", bw, reps, "", 0, v,
+                             round(rng.uniform(0.2, 0.6), 2), round(bw * rng.uniform(30, 45)), round(h_cm * rng.uniform(1.3, 1.6), 1),
+                             rng.randint(1, 9), round(bw * rng.uniform(10, 13)), round(bw * rng.uniform(10, 13)),
+                             round(bw * rng.uniform(15, 25)), round(bw * rng.uniform(15, 25)), rng.randint(240, 330),
+                             round(bw * rng.uniform(2.0, 2.6), 1), round(bw * rng.uniform(16, 19)),
+                             round(-rng.uniform(20, 36), 1), round(rng.uniform(120, 170), 1), rng.randint(500, 700),
+                             round(rng.uniform(0.4, 0.7), 2), asym1, asym2, round(bw * rng.uniform(50, 70)),
+                             round(bw * rng.uniform(13, 16), 1)])
+    return rows
+
+
+# ------------------------------------------------------------------ main
 
 def main(out_dir=None, expected_dir=None):
     OUT, EXPECTED = out_dir or globals()["OUT"], expected_dir or globals()["EXPECTED"]
@@ -217,7 +304,7 @@ def main(out_dir=None, expected_dir=None):
         okafor["name"] = "Jamal Okafor"
         used.add("Jamal Okafor")
     outfield = [p for p in s1 if p is not gk and p is not okafor]
-    # the inches plant must be a player who jumps under 38 cm: 38 cm is 15 inches, and the default plausible
+    # the wrong-unit plant must be a player who jumps under 38 cm: 38 cm is 15 inches, and the default plausible
     # range starts at 15 cm, so a higher jump typed in inches would pass the range check (a real limitation)
     low_jumper = next((p for p in outfield[9:] if p["jump"] < 36), outfield[9])
     low_jumper["jump"] = min(low_jumper["jump"], 35.0)
@@ -228,11 +315,14 @@ def main(out_dir=None, expected_dir=None):
         "flagged": [outfield[2]["name"], outfield[3]["name"]], "flag_drops": [3.0, 2.6],
         "decoy": outfield[4]["name"], "not_enough": outfield[5]["name"],
         "two_trials": outfield[6]["name"], "duplicated_day": outfield[7]["name"], "inches": low_jumper["name"],
+        "asym_unreadable": outfield[10]["name"],
     }
     write_csv(os.path.join(OUT, "gps_season1.csv"), GPS_COLS, gps_rows(rng, s1, SEASONS[1], plants))
     write_csv(os.path.join(OUT, "wellness_season1.csv"), WELL_COLS, wellness_rows(rng, s1, SEASONS[1], plants))
-    cmj1, squad = cmj_rows(rng, s1, SEASONS[1], plants)
-    write_csv(os.path.join(OUT, "cmj_season1.csv"), CMJ_COLS, cmj1)
+    jumps1 = trial_data(rng, s1, plants)
+    write_csv(os.path.join(OUT, "cmj_trials_season1.csv"), TRIAL_COLS, trial_rows(rng, s1, SEASONS[1], jumps1, plants))
+    fd1, _ = forcedecks_values(rng, jumps1, plants)
+    write_csv(os.path.join(OUT, "cmj_season1.csv"), FORCEDECKS_COLS, forcedecks_rows(rng, s1, SEASONS[1], fd1, plants))
 
     # season 2: 8 of 28 leave (29%), 8 join; no plants
     leavers = rng.sample(s1, 8)
@@ -245,23 +335,37 @@ def main(out_dir=None, expected_dir=None):
     s2 += joiners
     write_csv(os.path.join(OUT, "gps_season2.csv"), GPS_COLS, gps_rows(rng, s2, SEASONS[2], None))
     write_csv(os.path.join(OUT, "wellness_season2.csv"), WELL_COLS, wellness_rows(rng, s2, SEASONS[2], None))
-    cmj2, _ = cmj_rows(rng, s2, SEASONS[2], None)
-    write_csv(os.path.join(OUT, "cmj_season2.csv"), CMJ_COLS, cmj2)
+    jumps2 = trial_data(rng, s2, None)
+    write_csv(os.path.join(OUT, "cmj_trials_season2.csv"), TRIAL_COLS, trial_rows(rng, s2, SEASONS[2], jumps2, None))
+    fd2, _ = forcedecks_values(rng, jumps2, None)
+    write_csv(os.path.join(OUT, "cmj_season2.csv"), FORCEDECKS_COLS, forcedecks_rows(rng, s2, SEASONS[2], fd2, None))
 
+    common = {
+        "chosen_week": CHOSEN_WEEK,
+        "flagged_in_chosen_week": plants["flagged"], "planted_drops_cm": plants["flag_drops"],
+        "decoy_not_flagged": plants["decoy"],
+        "not_enough_data": plants["not_enough"],
+        "duplicated_test_day": {"player": plants["duplicated_day"], "week": 7},
+    }
     answers = {
         "note": "All names are made up. Codes are random on every deidentify.py run, so answers are given by name; "
                 "look the name up in KEY_DO_NOT_SHARE/athlete_key.csv to find its code.",
         "season1": {
             "season_start_date": SEASONS[1].isoformat(), "weeks": WEEKS, "players": 28,
-            "cmj": {
-                "chosen_week": CHOSEN_WEEK,
-                "flagged_in_chosen_week": plants["flagged"], "planted_drops_cm": plants["flag_drops"],
-                "decoy_not_flagged": plants["decoy"], "decoy_drop_cm": plants["decoy_drop"],
-                "not_enough_data": plants["not_enough"],
+            "cmj_forcedecks": common | {
+                "file": "cmj_season1.csv", "layout": "VALD ForceDecks, one row per test, jump height in inches",
+                "decoy_drop_cm": plants["decoy_drop_forcedecks"],
+                "reps_2": {"player": plants["two_trials"], "week": 6},
+                "cm_typed_into_inches_column": {"player": plants["inches"], "week": 9},
+                "unreadable_asymmetry_value": {"player": plants["asym_unreadable"], "week": 5, "column": "Concentric Impulse % (Asym) (%)"},
+                "thresholds_at_generation_cm": plants["thresholds_forcedecks"],
+            },
+            "cmj_trials": common | {
+                "file": "cmj_trials_season1.csv", "layout": "example per-trial layout, one row per jump, cm",
+                "decoy_drop_cm": plants["decoy_drop"],
                 "two_trials_only": {"player": plants["two_trials"], "week": 6},
-                "duplicated_test_day": {"player": plants["duplicated_day"], "week": 7},
                 "value_in_inches": {"player": plants["inches"], "week": 9, "trial": 2},
-                "thresholds_at_generation_cm": plants["thresholds"],
+                "thresholds_at_generation_cm": plants["thresholds_trials"],
             },
             "deidentify": {
                 "conflicting_heights": {"player": plants["conflict"], "heights_cm": [outfield[0]["height"], outfield[0]["height"] + 8],
@@ -281,20 +385,31 @@ def main(out_dir=None, expected_dir=None):
     }
     with open(os.path.join(EXPECTED, "expected_answers.json"), "w", encoding="utf-8") as f:
         json.dump(answers, f, indent=2)
-    c, d = answers["season1"]["cmj"], answers["season1"]["deidentify"]
+    fdk, tr, d = answers["season1"]["cmj_forcedecks"], answers["season1"]["cmj_trials"], answers["season1"]["deidentify"]
     md = ["# Expected answers for the synthetic squad", "",
           "All names are made up. Codes change on every run of deidentify.py, so these are by name; the key file maps them.", "",
-          "## cmj_flags.py on season 1 (after deidentify.py force_plate)",
-          f"- Chosen week: {c['chosen_week']}",
-          f"- Flagged in that week: {c['flagged_in_chosen_week'][0]} (drop {c['planted_drops_cm'][0]} cm), "
-          f"{c['flagged_in_chosen_week'][1]} (drop {c['planted_drops_cm'][1]} cm)",
-          f"- Decoy, NOT flagged: {c['decoy_not_flagged']} (drop {c['decoy_drop_cm']} cm: past the SWC, short of k x TE)",
-          f"- Not enough data: {c['not_enough_data']} (tested in weeks 7 and 8 only)",
-          f"- Only 2 trials: {c['two_trials_only']['player']}, week 6",
-          f"- Duplicated test day: {c['duplicated_test_day']['player']}, week 7 (trials 1,2,3,1,2,3; day excluded)",
-          f"- Value in inches: {c['value_in_inches']['player']}, week 9, trial 2 (excluded; day then has 2 trials)",
-          f"- Thresholds when the data were generated: TE {c['thresholds_at_generation_cm']['te']} cm, "
-          f"SWC {c['thresholds_at_generation_cm']['swc']} cm, k x TE {c['thresholds_at_generation_cm']['k_te']} cm",
+          "## cmj_flags.py on cmj_season1.csv (ForceDecks layout, per test, inches) after `deidentify.py force_plate`",
+          f"- Chosen week: {fdk['chosen_week']}",
+          f"- Flagged in that week: {fdk['flagged_in_chosen_week'][0]} (drop about {fdk['planted_drops_cm'][0]} cm), "
+          f"{fdk['flagged_in_chosen_week'][1]} (drop about {fdk['planted_drops_cm'][1]} cm)",
+          f"- Decoy, NOT flagged: {fdk['decoy_not_flagged']} (drop {fdk['decoy_drop_cm']} cm: past the SWC, short of k x TE)",
+          f"- Not enough data: {fdk['not_enough_data']} (tested in weeks 7 and 8 only)",
+          f"- Reps = 2: {fdk['reps_2']['player']}, week 6 (a note; trials are not in a per-test export)",
+          f"- Duplicated test day: {fdk['duplicated_test_day']['player']}, week 7 (two rows; day excluded)",
+          f"- Centimetres typed into the inches column: {fdk['cm_typed_into_inches_column']['player']}, week 9 (excluded; day left out)",
+          f"- Unreadable asymmetry value: {fdk['unreadable_asymmetry_value']['player']}, week 5 (deidentify.py warning)",
+          f"- Thresholds when the data were generated: TE {fdk['thresholds_at_generation_cm']['te']} cm, "
+          f"SWC {fdk['thresholds_at_generation_cm']['swc']} cm, k x TE {fdk['thresholds_at_generation_cm']['k_te']} cm",
+          "", "## cmj_flags.py on cmj_trials_season1.csv (per-trial layout, cm) after `deidentify.py force_plate_trials`",
+          f"- Chosen week: {tr['chosen_week']}; flagged: {tr['flagged_in_chosen_week'][0]} ({tr['planted_drops_cm'][0]} cm), "
+          f"{tr['flagged_in_chosen_week'][1]} ({tr['planted_drops_cm'][1]} cm)",
+          f"- Decoy, NOT flagged: {tr['decoy_not_flagged']} (drop {tr['decoy_drop_cm']} cm)",
+          f"- Not enough data: {tr['not_enough_data']}",
+          f"- Only 2 trials: {tr['two_trials_only']['player']}, week 6",
+          f"- Duplicated test day: {tr['duplicated_test_day']['player']}, week 7 (trials 1,2,3,1,2,3; day excluded)",
+          f"- Value in inches: {tr['value_in_inches']['player']}, week 9, trial 2 (excluded; day then has 2 trials)",
+          f"- Thresholds when the data were generated: TE {tr['thresholds_at_generation_cm']['te']} cm, "
+          f"SWC {tr['thresholds_at_generation_cm']['swc']} cm, k x TE {tr['thresholds_at_generation_cm']['k_te']} cm",
           "", "## deidentify.py on season 1",
           f"- Conflicting heights: {d['conflicting_heights']['player']} ({d['conflicting_heights']['heights_cm'][0]} and "
           f"{d['conflicting_heights']['heights_cm'][1]} cm) in gps_season1.csv",
@@ -303,12 +418,14 @@ def main(out_dir=None, expected_dir=None):
           f"- Notes column naming a coach: {d['notes_column_with_a_name']['name']} in wellness_season1.csv (dropped by the default settings; "
           f"warned about if kept)",
           f"- Unique goalkeeper: {d['unique_goalkeeper']} (athlete-level warning in gps and wellness; row-level warning for the week-6 injury)",
+          "- ForceDecks file: jump height converted from inches to cm, Additional Load from lb to kg, asymmetry columns split into number and side",
           "", "## Season 2", f"- {len(answers['season2']['left_after_season1'])} players left, {len(answers['season2']['joined_in_season2'])} joined "
           f"({answers['season2']['turnover_percent']}% turnover). No planted problems."]
     with open(os.path.join(EXPECTED, "expected_answers.md"), "w", encoding="utf-8") as f:
         f.write("\n".join(md) + "\n")
-    print(f"Wrote 6 files to {OUT} and the expected answers to {EXPECTED}.")
-    print(f"Thresholds at generation: {plants['thresholds']}; decoy drop {plants['decoy_drop']} cm")
+    print(f"Wrote 8 files to {OUT} and the expected answers to {EXPECTED}.")
+    print(f"Per-trial thresholds: {plants['thresholds_trials']}; decoy drop {plants['decoy_drop']} cm")
+    print(f"ForceDecks thresholds: {plants['thresholds_forcedecks']}; decoy drop {plants['decoy_drop_forcedecks']} cm")
 
 
 if __name__ == "__main__":

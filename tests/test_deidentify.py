@@ -13,7 +13,9 @@ sys.path.insert(0, ROOT)
 import deidentify  # noqa: E402
 
 with open(os.path.join(ROOT, "expected_output", "expected_answers.json"), encoding="utf-8") as f:
-    EXPECTED = json.load(f)["season1"]["deidentify"]
+    _S1 = json.load(f)["season1"]
+EXPECTED = _S1["deidentify"]
+EXP_FD = _S1["cmj_forcedecks"]
 
 
 def file_hash(path):
@@ -54,7 +56,7 @@ class DeidentifyTests(unittest.TestCase):
         key = self.key_map()
         conflict_code = key[EXPECTED["conflicting_heights"]["player"]]
         self.assertIn(conflict_code, r["conflicts"], "conflicting heights not reported")
-        self.assertTrue(any("184" in x or str(EXPECTED["conflicting_heights"]["heights_cm"][0]) in x for x in r["conflicts"][conflict_code]))
+        self.assertTrue(any(str(EXPECTED["conflicting_heights"]["heights_cm"][0]) in x for x in r["conflicts"][conflict_code]))
         gk = key[EXPECTED["unique_goalkeeper"]]
         self.assertTrue(any(gk in codes and len(codes) == 1 for codes in r["checks"]["athlete_level_small_groups"].values()),
                         "the goalkeeper should be reported as a group of one")
@@ -123,11 +125,56 @@ class DeidentifyTests(unittest.TestCase):
         r2 = self.run_profile("wellness")
         self.assertIn("Notes", r2["name_shaped"])
 
+    # ---- the ForceDecks file: headings, units, asymmetry
+    def test_forcedecks_headings_units_and_asymmetry(self):
+        r = self.run_profile("force_plate")
+        src_rows = read_csv(self.settings["profiles"]["force_plate"]["input_file"])
+        out = read_csv(r["output_file"])
+        heads = r["output_headers"]
+        self.assertTrue(all(h == h.strip() for h in heads), "no output heading may keep end spaces")
+        self.assertIn("RSI-modified [m/s]", heads)
+        # inches -> cm, heading renamed
+        self.assertIn("Jump Height (Imp-Mom) [cm]", heads)
+        self.assertNotIn("Jump Height (Imp-Mom) in Inches [in]", heads)
+        raw_in = float(src_rows[0]["Jump Height (Imp-Mom) in Inches [in] "])
+        self.assertAlmostEqual(float(out[0]["Jump Height (Imp-Mom) [cm]"]), raw_in * 2.54, places=2)
+        # lb -> kg
+        self.assertIn("Additional Load [kg]", heads)
+        self.assertEqual(r["conversions"]["Additional Load [lb]"], ("lb", "kg"))
+        self.assertTrue(any("converted to cm" in line for line in r["report"]))
+        # asymmetry split
+        self.assertIn("Concentric Impulse % (Asym) (%)", heads)
+        self.assertIn("Concentric Impulse % (Asym) (%) side", heads)
+        sides = {o["Concentric Impulse % (Asym) (%) side"] for o in out}
+        self.assertTrue(sides <= {"L", "R", ""})
+        good = [o for o in out if o["Concentric Impulse % (Asym) (%)"] != ""]
+        self.assertTrue(all(float(o["Concentric Impulse % (Asym) (%)"]) >= 0 for o in good))
+        self.assertEqual(len(r["asymmetry_unparsed"]["Concentric Impulse % (Asym) (%)"]), 1, "one planted unreadable value")
+        self.assertTrue(any("could not be read as a number plus L or R" in line for line in r["report"]))
+        # negative depth passes through unchanged (cm, so no conversion)
+        self.assertTrue(all(float(o["Countermovement Depth [cm]"]) < 0 for o in out))
+        # body mass banded from the [KG] heading
+        self.assertTrue(all("kg" in o["BW [KG]"] for o in out))
+
+    def test_missing_unit_stops(self):
+        p = self.settings["profiles"]["force_plate"]
+        p["body_mass_column"] = "Reps"          # a column with no unit in its heading
+        with self.assertRaises(deidentify.StopRun) as cm:
+            self.run_profile("force_plate")
+        self.assertIn("no mass unit", str(cm.exception))
+
+    def test_setting_with_end_space_still_matches(self):
+        p = self.settings["profiles"]["force_plate"]
+        p["keep_columns"] = [c + "  " for c in p["keep_columns"]]
+        r = self.run_profile("force_plate")
+        self.assertEqual(r["rows"], 381)
+
     # ---- key reuse and safety
     def test_key_is_reused_across_exports(self):
         self.run_profile("gps")
         k1 = self.key_map()
         self.run_profile("force_plate")
+        self.run_profile("force_plate_trials")
         self.run_profile("wellness")
         k2 = self.key_map()
         for name, code in k1.items():

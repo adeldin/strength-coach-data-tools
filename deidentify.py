@@ -5,11 +5,14 @@ What it does, in order:
   1. Keeps only the columns you list below. Every other column is dropped.
   2. Replaces each athlete's name or ID with a random code (for example ATH-K7Q2MX) and writes
      the name-to-code key to a SEPARATE folder that you must keep private.
-  3. Converts dates into training week numbers counted from your season start date.
-  4. Replaces body mass and height with bands (for example "70-75 kg"), and positions with groups.
-  5. Checks whether any athlete, or any row, could still be picked out, and says so in plain English.
-  6. Re-reads the finished file and stops if any original name or ID is still in it.
-  7. Writes a report of everything it did.
+  3. Reads the unit in each heading's brackets, converts inches to cm and pounds to kg, and renames
+     the heading to match.
+  4. Converts dates into training week numbers counted from your season start date.
+  5. Replaces body mass and height with bands (for example "70-75 kg"), positions with groups, and
+     splits asymmetry values like "6.3 L" into a number and a side.
+  6. Checks whether any athlete, or any row, could still be picked out, and says so in plain English.
+  7. Re-reads the finished file and stops if any original name or ID is still in it.
+  8. Writes a report of everything it did.
 
 The result is CODED data, not anonymous data. Someone who knows the squad may still recognise an
 athlete from a rare position, an unusual body size, or an injury in a known week. Read the report
@@ -19,6 +22,7 @@ final say on what may be shared.
 How to run it (from the folder that holds this file):
     python deidentify.py gps
     python deidentify.py force_plate
+    python deidentify.py force_plate_trials
     python deidentify.py wellness
 Add "--input some_file.csv" to code a different file with the same settings.
 
@@ -26,7 +30,7 @@ Needs Python 3.10 or newer. Uses nothing outside Python's own standard library. 
 Never changes or overwrites your input file.
 """
 
-SCRIPT_VERSION = "0.1.0"
+SCRIPT_VERSION = "0.2.0"
 
 # =====================================================================================================
 # SETTINGS  -  edit these. Everything a coach needs to change is in this block.
@@ -48,7 +52,7 @@ SETTINGS = {
     # An athlete, or a row, is reported when fewer than this many DIFFERENT athletes share its traits.
     "minimum_group_size": 5,
 
-    # Body mass and height are replaced by bands of this width.
+    # Body mass and height are replaced by bands of this width (after conversion to kg and cm).
     "body_mass_band_kg": 5,
     "height_band_cm": 5,
 
@@ -69,10 +73,11 @@ SETTINGS = {
     #   example: "id_aliases": {"J. Okafor": "Jamal Okafor"},
     "id_aliases": {},
 
-    # One profile per kind of export. The column names below are EXAMPLES in the style of common GPS,
-    # force plate and wellness systems. Change them to match the header row of your own export,
-    # spelled exactly as the export spells them. A column that is not in "keep_columns" is dropped.
+    # One profile per kind of export. Spaces at the start or end of a heading are ignored, so
+    # "RSI-modified [m/s] " in the export matches "RSI-modified [m/s]" here. Otherwise headings must
+    # be spelled exactly as the export spells them. A column that is not in "keep_columns" is dropped.
     "profiles": {
+        # EXAMPLE layout in the style of a GPS system export. Replace with your own headings.
         "gps": {
             "input_file": "synthetic_data/gps_season1.csv",
             "athlete_id_column": "Player Name",
@@ -90,9 +95,31 @@ SETTINGS = {
             "body_mass_column": "Body Mass (kg)",
             # Columns whose entries describe an event (an injury, an illness, a return to play).
             "event_columns": [],
+            # Columns holding a value and a side letter, like "6.3 L". Columns with "(Asym)" in the
+            # heading are found automatically; list any others here.
+            "asymmetry_columns": [],
         },
+        # REAL layout: a VALD ForceDecks CMJ export (one row per test, with a Reps column). Jump height
+        # is exported in inches; the script converts it to cm and renames the heading.
         "force_plate": {
             "input_file": "synthetic_data/cmj_season1.csv",
+            "athlete_id_column": "Name",
+            "keep_columns": ["Name", "Date", "Test Type", "BW [KG]", "Reps", "Additional Load [lb]",
+                             "Jump Height (Imp-Mom) in Inches [in]", "RSI-modified [m/s]",
+                             "Peak Power / BM [W/kg]", "Countermovement Depth [cm]",
+                             "Concentric Impulse % (Asym) (%)", "Peak Landing Force % (Asym) (%)"],
+            "date_columns": ["Date"],
+            "date_format": "%m/%d/%Y",
+            "position_column": "",
+            "class_year_column": "",
+            "height_column": "",
+            "body_mass_column": "BW [KG]",
+            "event_columns": [],
+            "asymmetry_columns": [],
+        },
+        # EXAMPLE layout for a per-trial (one row per jump) force plate export in cm.
+        "force_plate_trials": {
+            "input_file": "synthetic_data/cmj_trials_season1.csv",
             "athlete_id_column": "Name",
             "keep_columns": ["Name", "Date", "Test Type", "Trial", "Jump Height (cm)",
                              "Peak Power (W)", "RSI-modified", "Body Mass (kg)"],
@@ -103,7 +130,9 @@ SETTINGS = {
             "height_column": "",
             "body_mass_column": "Body Mass (kg)",
             "event_columns": [],
+            "asymmetry_columns": [],
         },
+        # EXAMPLE layout in the style of a wellness questionnaire export.
         "wellness": {
             "input_file": "synthetic_data/wellness_season1.csv",
             "athlete_id_column": "Athlete",
@@ -116,6 +145,7 @@ SETTINGS = {
             "height_column": "",
             "body_mass_column": "",
             "event_columns": ["Injury/Illness"],
+            "asymmetry_columns": [],
         },
     },
 }
@@ -139,6 +169,13 @@ CODE_PREFIX = "ATH-"
 CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"   # no 0/O or 1/I, so codes are easy to read aloud
 CODE_LENGTH = 6
 NAME_SHAPED = re.compile(r"\b[A-Z][a-z]{1,}(?:\s[A-Z]\.?)?\s[A-Z][a-z]{1,}\b|\b[A-Z]\.\s?[A-Z][a-z]{1,}\b")
+ASYM_VALUE = re.compile(r"^\s*([-+]?\d+(?:\.\d+)?)\s*([LRlr])\s*$")
+
+# units the script understands, as they appear inside [...] or (...) at the end of a heading
+LENGTH_UNITS = {"cm": ("cm", 1.0), "in": ("cm", 2.54), "inch": ("cm", 2.54), "inches": ("cm", 2.54), "mm": ("cm", 0.1), "m": ("m", 1.0)}
+MASS_UNITS = {"kg": ("kg", 1.0), "lb": ("kg", 0.45359237), "lbs": ("kg", 0.45359237)}
+OTHER_UNITS = {"n", "w", "w/kg", "m/s", "n/s", "ms", "s", "%", "n s", "km/h", "min"}
+UNIT_GROUP = re.compile(r"[\[(]([^\[\]()]+)[\])]")
 
 
 class StopRun(Exception):
@@ -176,6 +213,26 @@ def mode(values):
     """The most common value in a list, ignoring blanks."""
     values = [v for v in values if v != ""]
     return Counter(values).most_common(1)[0][0] if values else ""
+
+
+def unit_of(header):
+    """The unit named in the heading's last [..] or (..) group, lower-case, or '' if there is none."""
+    groups = [g.strip().casefold() for g in UNIT_GROUP.findall(header)]
+    for g in reversed(groups):
+        if g in LENGTH_UNITS or g in MASS_UNITS or g in OTHER_UNITS:
+            return g
+    return ""
+
+
+def converted_header(header, old_unit, new_unit):
+    """Rename '[in]' to '[cm]' (or '(lb)' to '(kg)'), and drop a phrase like 'in Inches' if present."""
+    out = re.sub(r"([\[(])" + re.escape(old_unit) + r"([\])])", lambda m: m.group(1) + new_unit + m.group(2), header, flags=re.I)
+    out = re.sub(r"\s+in\s+inches\b", "", out, flags=re.I)
+    return " ".join(out.split())
+
+
+def fmt_number(value):
+    return f"{value:.2f}".rstrip("0").rstrip(".") if value is not None else ""
 
 
 # ------------------------------------------------------------------ dates
@@ -270,7 +327,7 @@ def likely_name_variants(ids):
                 continue
             if norm(a) == norm(b):
                 pairs.add((a, b))
-            elif a_last == b_last and len(parsed) and (a_first[0] == b_first[0]) and (
+            elif a_last == b_last and a_first[0] == b_first[0] and (
                     len(a_first) == 1 or len(b_first) == 1 or a_first.startswith(b_first) or b_first.startswith(a_first)):
                 pairs.add((a, b))
     return sorted(pairs)
@@ -304,6 +361,20 @@ def suggest_coarser(rows_by_athlete, trait_names, minimum):
               "or drop every trait column")
 
 
+# ------------------------------------------------------------------ reading
+
+def read_export(path):
+    """Rows as dicts keyed by STRIPPED headings. Returns (headers, rows, how many headings were trimmed)."""
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        raw_headers = reader.fieldnames or []
+        raw_rows = list(reader)
+    headers = [h.strip() for h in raw_headers]
+    trimmed = sum(1 for a, b in zip(raw_headers, headers) if a != b)
+    rows = [{h: (r.get(rh) or "") for rh, h in zip(raw_headers, headers)} for r in raw_rows]
+    return headers, rows, trimmed
+
+
 # ------------------------------------------------------------------ the run
 
 def run(settings, profile_name, input_override=None, output_override=None, key_override=None):
@@ -312,7 +383,8 @@ def run(settings, profile_name, input_override=None, output_override=None, key_o
               "Output is CODED data, not anonymous data. Review the warnings below before sharing.", ""]
     if profile_name not in settings["profiles"]:
         raise StopRun(f"No profile called '{profile_name}'. Profiles in SETTINGS: {', '.join(settings['profiles'])}.")
-    p = settings["profiles"][profile_name]
+    p = {k: ([x.strip() for x in v] if isinstance(v, list) else v.strip() if isinstance(v, str) else v)
+         for k, v in settings["profiles"][profile_name].items()}
     input_file = input_override or p["input_file"]
     output_folder = output_override or settings["output_folder"]
     key_folder = key_override or settings["key_folder"]
@@ -334,11 +406,10 @@ def run(settings, profile_name, input_override=None, output_override=None, key_o
     if not os.path.exists(input_file):
         raise StopRun(f"Input file not found: {input_file}")
 
-    with open(input_file, newline="", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f)
-        headers = reader.fieldnames or []
-        rows = list(reader)
+    headers, rows, trimmed = read_export(input_file)
     report.append(f"Input: {input_file}  ({len(rows)} rows, {len(headers)} columns)")
+    if trimmed:
+        report.append(f"  {trimmed} heading(s) had spaces at the start or end; those spaces were removed.")
     if len(set(headers)) != len(headers):
         raise StopRun("The input has two columns with the same heading. Rename one and run again.")
 
@@ -346,7 +417,8 @@ def run(settings, profile_name, input_override=None, output_override=None, key_o
     keep = list(p["keep_columns"])
     missing = [c for c in keep + [id_col] if c not in headers]
     if missing:
-        raise StopRun(f"These columns are in SETTINGS but not in the file: {missing}. Headings must match exactly.")
+        raise StopRun(f"These columns are in SETTINGS but not in the file: {missing}. Headings must match exactly "
+                      f"(spaces at the ends are ignored). The file's headings are: {headers}")
     if id_col not in keep:
         keep.insert(0, id_col)
     dropped = [h for h in headers if h not in keep]
@@ -385,6 +457,38 @@ def run(settings, profile_name, input_override=None, output_override=None, key_o
         for a, b in variants:
             report.append(f"      '{a}'  and  '{b}'")
 
+    # ---- units: read from the headings, convert inches -> cm and pounds -> kg
+    h_col, m_col = p.get("height_column", ""), p.get("body_mass_column", "")
+    renamed = {}
+    conversions = {}
+    report += ["", "UNITS"]
+    for col in keep:
+        if col == id_col:
+            continue
+        u = unit_of(col)
+        if col == m_col and u not in MASS_UNITS:
+            raise StopRun(f"body_mass_column '{col}' has no mass unit in its heading. Add [kg] or [lb] to the heading in the "
+                          f"file (or set body_mass_column to '' if you do not want it banded).")
+        if col == h_col and u not in LENGTH_UNITS:
+            raise StopRun(f"height_column '{col}' has no length unit in its heading. Add [cm] or [in] to the heading in the "
+                          f"file (or set height_column to '' if you do not want it banded).")
+        table = LENGTH_UNITS if u in LENGTH_UNITS else MASS_UNITS if u in MASS_UNITS else None
+        if table and table[u][1] != 1.0:
+            new_unit, factor = table[u]
+            bad = 0
+            for r in kept_rows:
+                v = to_float(r[col])
+                if v is None:
+                    bad += str(r[col]).strip() != ""
+                    continue
+                r[col] = fmt_number(v * factor)
+            renamed[col] = converted_header(col, u, new_unit)
+            conversions[col] = (u, new_unit)
+            report.append(f"  '{col}': values read in {u} and converted to {new_unit} (x {factor}); heading becomes '{renamed[col]}'."
+                          + (f" WARNING: {bad} value(s) were not numbers and were left blank." if bad else ""))
+    if not conversions:
+        report.append("  no conversions needed: every unit-bearing heading is already in cm, kg or another unit the script leaves alone.")
+
     # ---- dates -> weeks
     season_start = datetime.strptime(settings["season_start_date"], "%Y-%m-%d").date()
     week_cols = {}
@@ -402,9 +506,17 @@ def run(settings, profile_name, input_override=None, output_override=None, key_o
         if early:
             report.append(f"  WARNING: {early} date(s) fall before season_start_date and have week numbers of 0 or less.")
 
-    # ---- traits: bands, position groups, conflicts
+    # ---- conflicts: one ID, two heights (on the converted values, before banding)
     pos_col, cls_col = p.get("position_column", ""), p.get("class_year_column", "")
-    h_col, m_col = p.get("height_column", ""), p.get("body_mass_column", "")
+    heights = defaultdict(set)
+    if h_col and h_col in keep:
+        for r in kept_rows:
+            v = to_float(r[h_col])
+            if v is not None:
+                heights[r[id_col]].add(v)
+    conflicts = {i: set(hs) for i, hs in heights.items() if max(hs) - min(hs) > float(settings["height_tolerance_cm"])}
+
+    # ---- traits: bands, position groups, asymmetry split
     groups_map = settings.get("position_groups", {})
     report += ["", "TRAITS"]
     unknown_pos = Counter()
@@ -427,17 +539,28 @@ def run(settings, profile_name, input_override=None, output_override=None, key_o
                           + ", ".join(f"'{k}' ({n} rows)" for k, n in unknown_pos.most_common()))
     for col, width, unit in ((h_col, settings["height_band_cm"], "cm"), (m_col, settings["body_mass_band_kg"], "kg")):
         if col and col in keep:
-            report.append(f"  '{col}' replaced by {width} {unit} bands.")
+            report.append(f"  '{renamed.get(col, col)}' replaced by {width} {unit} bands.")
+    asym_cols = [c for c in keep if c != id_col and ("(asym)" in c.casefold() or c in p.get("asymmetry_columns", []))]
+    asym_bad = defaultdict(list)
+    for col in asym_cols:
+        for idx, r in enumerate(kept_rows):
+            raw = str(r[col]).strip()
+            if raw == "":
+                r[col], r[col + " side"] = "", ""
+                continue
+            m = ASYM_VALUE.match(raw)
+            if m:
+                r[col], r[col + " side"] = m.group(1), m.group(2).upper()
+            else:
+                r[col], r[col + " side"] = "", ""
+                asym_bad[col].append(idx + 2)
+        report.append(f"  '{col}' split into a number and a '{col} side' column (L or R).")
+        if asym_bad[col]:
+            report.append(f"  WARNING: {len(asym_bad[col])} value(s) in '{col}' could not be read as a number plus L or R "
+                          f"and were left blank (rows {asym_bad[col][:10]}).")
+    if not any((pos_col and pos_col in keep, h_col and h_col in keep, m_col and m_col in keep, asym_cols)):
+        report.append("  no trait columns in this profile.")
 
-    # conflicts: one ID, two heights (checked on the raw values before banding)
-    heights = defaultdict(set)
-    if h_col and h_col in headers:
-        for r in rows:
-            v = to_float(r[h_col])
-            raw_id = " ".join(str(r[id_col]).split())
-            if v is not None and raw_id:
-                heights[aliases.get(norm(raw_id), raw_id)].add(v)
-    conflicts = {i: hs for i, hs in heights.items() if max(hs) - min(hs) > float(settings["height_tolerance_cm"])}
     fixed_conf = defaultdict(lambda: defaultdict(set))
     for r in kept_rows:
         for col in (pos_col, cls_col):
@@ -466,21 +589,21 @@ def run(settings, profile_name, input_override=None, output_override=None, key_o
         for c in trait_cols:
             per_athlete[key[r[id_col]]][c].append(str(r[c]).strip())
     athlete_traits = {code: {c: mode(vals) for c, vals in d.items()} for code, d in per_athlete.items()}
+    label = lambda c: renamed.get(c, c)
     report += ["", f"UNIQUENESS CHECK  (minimum group size {minimum}; counts DIFFERENT athletes, not rows)"]
-    checks = {"athlete_level_small_groups": {}, "row_level_small_groups": [], "trait_columns": trait_cols}
+    checks = {"athlete_level_small_groups": {}, "row_level_small_groups": [], "trait_columns": [label(c) for c in trait_cols]}
     if trait_cols:
         small, smallest = smallest_group(athlete_traits, trait_cols, minimum)
         checks["athlete_level_small_groups"] = {" | ".join(k): sorted(v) for k, v in small.items()}
-        report.append(f"  (a) Athlete level, on {', '.join(trait_cols)}: smallest group has {smallest} athlete(s).")
+        report.append(f"  (a) Athlete level, on {', '.join(label(c) for c in trait_cols)}: smallest group has {smallest} athlete(s).")
         if small:
             report.append(f"      WARNING: {len(small)} combination(s) of traits are shared by fewer than {minimum} athletes, "
                           f"covering {sum(len(v) for v in small.values())} athlete(s). Anyone who knows the squad could pick them out:")
             for combo, codes in sorted(small.items(), key=lambda kv: len(kv[1])):
-                report.append(f"        {len(codes)} athlete(s): " + ", ".join(f"{c}={v or '(blank)'}" for c, v in zip(trait_cols, combo)))
+                report.append(f"        {len(codes)} athlete(s): " + ", ".join(f"{label(c)}={v or '(blank)'}" for c, v in zip(trait_cols, combo)))
             report.append(f"      Suggestion: {suggest_coarser(athlete_traits, trait_cols, minimum)}.")
         else:
-            report.append("      OK: every combination of traits is shared by at least "
-                          f"{minimum} athletes.")
+            report.append(f"      OK: every combination of traits is shared by at least {minimum} athletes.")
     else:
         report.append("  (a) Athlete level: no trait columns kept, so nothing to check.")
 
@@ -511,27 +634,22 @@ def run(settings, profile_name, input_override=None, output_override=None, key_o
 
     # ---- write the coded file
     os.makedirs(output_folder, exist_ok=True)
-    out_headers = []
+    out_cols = []            # (output heading, source key in the row dicts, kind)
     for c in keep:
         if c == id_col:
-            out_headers.append("Athlete Code")
+            out_cols.append(("Athlete Code", c, "code"))
         elif c in week_cols:
-            out_headers.append("Week")
+            out_cols.append(("Week", c, "week"))
         else:
-            out_headers.append(c)
+            out_cols.append((renamed.get(c, c), c, "value"))
+            if c in asym_cols:
+                out_cols.append((c + " side", c + " side", "value"))
     with open(output_file, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(out_headers)
+        w.writerow([h for h, _, _ in out_cols])
         for idx, r in enumerate(kept_rows):
-            out = []
-            for c in keep:
-                if c == id_col:
-                    out.append(key[r[id_col]])
-                elif c in week_cols:
-                    out.append(week_cols[c][idx])
-                else:
-                    out.append(r[c])
-            w.writerow(out)
+            w.writerow([key[r[src]] if kind == "code" else week_cols[src][idx] if kind == "week" else r.get(src, "")
+                        for _, src, kind in out_cols])
 
     # ---- verify: no original ID anywhere in the output
     report += ["", "VERIFICATION"]
@@ -563,7 +681,9 @@ def run(settings, profile_name, input_override=None, output_override=None, key_o
         f.write("\n".join(report) + "\n")
     return {"output_file": output_file, "report_file": report_file, "key_path": key_path,
             "report": report, "checks": checks, "conflicts": {key[i]: sorted(map(str, v)) for i, v in conflicts.items()},
-            "name_variants": variants, "name_shaped": dict(name_hits), "rows": len(kept_rows)}
+            "name_variants": variants, "name_shaped": dict(name_hits), "rows": len(kept_rows),
+            "conversions": conversions, "renamed": renamed, "asymmetry_unparsed": {k: v for k, v in asym_bad.items() if v},
+            "output_headers": [h for h, _, _ in out_cols]}
 
 
 def main(argv=None):

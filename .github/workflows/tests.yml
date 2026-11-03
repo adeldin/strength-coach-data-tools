@@ -23,5 +23,6 @@ jobs:
         run: |
           python deidentify.py gps
           python deidentify.py force_plate
+          python deidentify.py force_plate_trials
           python deidentify.py wellness
           python cmj_flags.py

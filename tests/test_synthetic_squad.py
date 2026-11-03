@@ -37,6 +37,7 @@ class GeneratorTests(unittest.TestCase):
                                 "--output-folder", os.path.join(tmp, "c")], cwd=ROOT, capture_output=True, text=True, env=env)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             self.assertIn("FLAGS (2)", r.stdout)
+            self.assertIn("per-test", r.stdout)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
