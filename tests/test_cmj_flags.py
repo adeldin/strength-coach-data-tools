@@ -19,6 +19,8 @@ with open(os.path.join(ROOT, "expected_output", "expected_answers.json"), encodi
     _ALL = json.load(f)["season1"]
 EXP_FD = _ALL["cmj_forcedecks"]
 EXP_TR = _ALL["cmj_trials"]
+PER_TEST_COLUMNS = {"jump_height_column": "Jump Height (Imp-Mom)", "trial_column": "", "reps_column": "Reps",
+                    "depth_column": "Countermovement Depth"}
 
 
 def file_hash(path):
@@ -100,16 +102,27 @@ class _SquadBase(unittest.TestCase):
         self.assertEqual(self.before, file_hash(self.coded_file))
 
     def test_exactly_the_expected_flags(self):
-        flags = {(self.name[r["athlete"]], r["day"]) for r in self.out["results"] if r["status"] == "FLAG"}
-        expected = {(n, self.expected["chosen_week"]) for n in self.expected["flagged_in_chosen_week"]}
-        self.assertEqual(flags, expected, "the flagged set must be exactly the two planted athletes in the chosen week")
+        wk = self.expected["chosen_week"]
+        flags = {self.name[r["athlete"]] for r in self.out["results"] if r["status"] == "FLAG" and r["day"] == wk}
+        self.assertEqual(flags, set(self.expected["flagged_in_chosen_week"]),
+                         "the flagged set must be exactly the two planted athletes in the chosen week")
+        drops = {self.name[r["athlete"]]: r["drop"] for r in self.out["results"] if r["status"] == "FLAG" and r["day"] == wk}
+        for name, drop in zip(self.expected["flagged_in_chosen_week"], self.expected["planted_drops_cm"]):
+            self.assertAlmostEqual(drops[name], drop, places=2)
+
+    def test_decoy_is_the_only_other_athlete_past_the_swc_in_the_chosen_week(self):
+        wk, swc = self.expected["chosen_week"], self.out["squad"]["swc"]
+        past = {self.name[r["athlete"]] for r in self.out["results"]
+                if r["day"] == wk and r["status"] == "no flag" and r["drop"] > swc}
+        self.assertEqual(past, {self.expected["decoy_not_flagged"]})
 
     def test_decoy_not_flagged(self):
         decoy = self.code[self.expected["decoy_not_flagged"]]
         row = next(r for r in self.out["results"] if r["athlete"] == decoy and r["day"] == self.expected["chosen_week"])
         self.assertEqual(row["status"], "no flag")
-        self.assertGreater(row["drop"], self.out["squad"]["swc"], "the decoy must exceed the SWC")
-        self.assertLess(row["drop"], self.out["squad"]["k_te"], "the decoy must not exceed k x TE")
+        self.assertGreaterEqual(row["drop"] - self.out["squad"]["swc"], 0.3, "the decoy must clearly exceed the SWC")
+        self.assertGreaterEqual(self.out["squad"]["k_te"] - row["drop"], 0.3, "the decoy must clearly fall short of k x TE")
+        self.assertEqual(row["drop"], self.expected["decoy_drop_cm"], "the script must report the drop in the expected answers")
 
     def test_not_enough_data(self):
         code = self.code[self.expected["not_enough_data"]]
@@ -151,6 +164,7 @@ class ForceDecksPerTestTests(_SquadBase):
     """The real VALD ForceDecks layout: one row per test, inches, after deidentify.py converted it to cm."""
     profile = "force_plate"
     expected = EXP_FD
+    cmj_overrides = PER_TEST_COLUMNS
 
     def test_mode_and_unit_reported(self):
         self.assertEqual(self.out["info"]["mode"], "per-test")
@@ -182,10 +196,16 @@ class PerTrialTests(_SquadBase):
     """The example per-trial layout in cm."""
     profile = "force_plate_trials"
     expected = EXP_TR
-    cmj_overrides = {"jump_height_column": "Jump Height (cm)", "trial_column": "Trial", "reps_column": "", "depth_column": ""}
 
     def test_mode(self):
         self.assertEqual(self.out["info"]["mode"], "per-trial")
+
+    def test_day_to_day_variation_is_about_four_percent(self):
+        means = [r["baseline"] for r in self.out["results"] if r["status"] == "baseline"]
+        self.assertAlmostEqual(self.out["squad"]["te"] / statistics.fmean(means), 0.04, delta=0.005)
+
+    def test_decoy_drop_matches_the_per_test_file(self):
+        self.assertEqual(EXP_TR["decoy_drop_cm"], EXP_FD["decoy_drop_cm"])
 
     def test_two_trials_warning(self):
         code = self.code[self.expected["two_trials_only"]["player"]]
@@ -208,7 +228,7 @@ class RawInchesFileTests(unittest.TestCase):
         cls.tmp = tempfile.mkdtemp(prefix="cmjin_")
         cls.settings = dict(cmj_flags.SETTINGS) | {
             "input_file": os.path.join(ROOT, "synthetic_data", "cmj_season1.csv"), "output_folder": os.path.join(cls.tmp, "o"),
-            "athlete_column": "Name", "day_column": "Date", "day_format": "%m/%d/%Y"}
+            "athlete_column": "Name", "day_column": "Date", "day_format": "%m/%d/%Y"} | PER_TEST_COLUMNS
         cls.out = cmj_flags.run(cls.settings)
 
     @classmethod
@@ -229,12 +249,10 @@ class RawInchesFileTests(unittest.TestCase):
         self.assertAlmostEqual(row["test_day_value"], round(raw_in * 2.54, 2), places=2)
 
     def test_same_flags_as_the_coded_route(self):
-        flags = {(r["athlete"], r["day"]) for r in self.out["results"] if r["status"] == "FLAG"}
         season_start = cmj_flags.day_key("2024-08-05", "")
-        wk = EXP_FD["chosen_week"]
-        self.assertEqual({a for a, _ in flags}, set(EXP_FD["flagged_in_chosen_week"]))
-        for _, d in flags:
-            self.assertEqual((d - season_start).days // 7 + 1, wk)
+        flags = {r["athlete"] for r in self.out["results"] if r["status"] == "FLAG"
+                 and (r["day"] - season_start).days // 7 + 1 == EXP_FD["chosen_week"]}
+        self.assertEqual(flags, set(EXP_FD["flagged_in_chosen_week"]))
 
     def test_cm_in_inches_column_note(self):
         msgs = [m for _, _, m in self.out["exclusions"] if "centimetres typed into the in column" in m]

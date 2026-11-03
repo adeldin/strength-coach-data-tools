@@ -29,7 +29,7 @@ How to run it (from the folder that holds this file):
 Needs Python 3.10 or newer. Standard library only. No network calls. Never changes the input file.
 """
 
-SCRIPT_VERSION = "0.2.0"
+SCRIPT_VERSION = "0.3.0"
 
 # =====================================================================================================
 # SETTINGS  -  edit these.
@@ -37,23 +37,26 @@ SCRIPT_VERSION = "0.2.0"
 
 SETTINGS = {
     # The file to read. The coded file from deidentify.py is the usual input.
-    "input_file": "coded_output/coded_cmj_season1.csv",
+    "input_file": "coded_output/coded_cmj_trials_season1.csv",
     # Where the results CSV and the report go. Created if missing. Must not be the input's folder.
     "output_folder": "cmj_output",
 
     # Column headings. Spaces at the ends and the unit in brackets are ignored when matching, so
     # "Jump Height (Imp-Mom)" matches both "Jump Height (Imp-Mom) in Inches [in]" and
     # "Jump Height (Imp-Mom) [cm]". The unit itself is read from the file's heading.
+    # These defaults fit a per-trial export (one row per jump). For a per-test export such as ForceDecks, set:
+    # jump_height_column "Jump Height (Imp-Mom)", trial_column "", reps_column "Reps",
+    # depth_column "Countermovement Depth". Trial-level checks cannot run on a per-test export.
     "athlete_column": "Athlete Code",
     "day_column": "Week",                 # a week number, or a date
     "day_format": "",                     # leave "" for week numbers or year-month-day dates;
                                           # set e.g. "%m/%d/%Y" if the day column holds dates like 08/05/2024
-    "jump_height_column": "Jump Height (Imp-Mom)",
-    "trial_column": "",                   # per-trial exports: the trial or rep number column (e.g. "Trial")
-    "reps_column": "Reps",                # per-test exports: the column that counts the reps in the test
+    "jump_height_column": "Jump Height (cm)",
+    "trial_column": "Trial",              # per-trial exports: the trial or rep number column ("" for a per-test export)
+    "reps_column": "",                    # per-test exports: the column that counts the reps in the test (e.g. "Reps")
     "test_type_column": "Test Type",      # "" if there is no such column
     "test_type_value": "CMJ",             # only rows with this test type are used ("" = use every row)
-    "depth_column": "Countermovement Depth",   # optional; exported as a negative number (downward). "" to skip
+    "depth_column": "",                   # optional, e.g. "Countermovement Depth"; exported as a negative number (downward)
 
     # The method's numbers. Defaults are the ones described in the article.
     "expected_trials_per_day": 3,
@@ -465,7 +468,15 @@ def run(settings, explain_code=None):
     return out
 
 
+def require_python():
+    if sys.version_info < (3, 10):
+        print(f"STOPPED: this script needs Python 3.10 or newer, and this is Python {sys.version_info[0]}.{sys.version_info[1]}. "
+              "Install the newest Python from python.org (README section 1), open a new terminal window, and try again.")
+        sys.exit(1)
+
+
 def main(argv=None):
+    require_python()
     ap = argparse.ArgumentParser(description="Flag meaningful CMJ drops. Settings are at the top of this file.")
     ap.add_argument("--input", help="read this file instead of SETTINGS input_file")
     ap.add_argument("--output-folder")

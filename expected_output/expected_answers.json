@@ -10,10 +10,6 @@
         "Ivo Larsen",
         "Sven Quiroga"
       ],
-      "planted_drops_cm": [
-        3.0,
-        2.6
-      ],
       "decoy_not_flagged": "Zane Zahra",
       "not_enough_data": "Dario Mbeki",
       "duplicated_test_day": {
@@ -22,7 +18,11 @@
       },
       "file": "cmj_season1.csv",
       "layout": "VALD ForceDecks, one row per test, jump height in inches",
-      "decoy_drop_cm": 1.143,
+      "planted_drops_cm": [
+        2.93,
+        2.67
+      ],
+      "decoy_drop_cm": 1.52,
       "reps_2": {
         "player": "Maya Pereira",
         "week": 6
@@ -37,12 +37,12 @@
         "column": "Concentric Impulse % (Asym) (%)"
       },
       "thresholds_at_generation_cm": {
-        "te": 0.774,
-        "swc": 1.079,
+        "te": 1.446,
+        "swc": 1.071,
         "k": 1.5,
-        "k_te": 1.162,
-        "between_athlete_sd": 5.393,
-        "effective_threshold": 1.162
+        "k_te": 2.169,
+        "between_athlete_sd": 5.353,
+        "effective_threshold": 2.169
       }
     },
     "cmj_trials": {
@@ -50,10 +50,6 @@
       "flagged_in_chosen_week": [
         "Ivo Larsen",
         "Sven Quiroga"
-      ],
-      "planted_drops_cm": [
-        3.0,
-        2.6
       ],
       "decoy_not_flagged": "Zane Zahra",
       "not_enough_data": "Dario Mbeki",
@@ -63,7 +59,11 @@
       },
       "file": "cmj_trials_season1.csv",
       "layout": "example per-trial layout, one row per jump, cm",
-      "decoy_drop_cm": 1.13,
+      "planted_drops_cm": [
+        2.99,
+        2.58
+      ],
+      "decoy_drop_cm": 1.52,
       "two_trials_only": {
         "player": "Maya Pereira",
         "week": 6
@@ -74,12 +74,12 @@
         "trial": 2
       },
       "thresholds_at_generation_cm": {
-        "te": 0.782,
-        "swc": 1.08,
+        "te": 1.452,
+        "swc": 1.071,
         "k": 1.5,
-        "k_te": 1.173,
-        "between_athlete_sd": 5.4,
-        "effective_threshold": 1.173
+        "k_te": 2.178,
+        "between_athlete_sd": 5.353,
+        "effective_threshold": 2.178
       }
     },
     "deidentify": {
@@ -118,24 +118,24 @@
     "season_start_date": "2025-08-04",
     "players": 28,
     "left_after_season1": [
+      "Elin Abara",
       "Esme Yilmaz",
       "Jamal Okafor",
+      "Joel Pereira",
       "Maya Pereira",
-      "Quentin Ustinov",
-      "Sven Santos",
+      "Oskar Oduya",
       "Tomas Okafor",
-      "Uma Lindqvist",
-      "Zane Zahra"
+      "Uma Lindqvist"
     ],
     "joined_in_season2": [
-      "Cleo Moreau",
-      "Dario Novak",
-      "Hana Horvat",
+      "Amara Nakamura",
+      "Bruno Oduya",
+      "Dev Castillo",
+      "Ivo Zahra",
       "Jamal Pereira",
-      "Kaia Baptiste",
-      "Lior Castillo",
-      "Nico Rahimi",
-      "Yara Okafor"
+      "Luca Zahra",
+      "Nico Baptiste",
+      "Uma Oduya"
     ],
     "turnover_percent": 28.6,
     "planted_problems": "none"

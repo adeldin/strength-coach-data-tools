@@ -21,8 +21,8 @@ final say on what may be shared.
 
 How to run it (from the folder that holds this file):
     python deidentify.py gps
-    python deidentify.py force_plate
     python deidentify.py force_plate_trials
+    python deidentify.py force_plate
     python deidentify.py wellness
 Add "--input some_file.csv" to code a different file with the same settings.
 
@@ -30,7 +30,7 @@ Needs Python 3.10 or newer. Uses nothing outside Python's own standard library. 
 Never changes or overwrites your input file.
 """
 
-SCRIPT_VERSION = "0.2.0"
+SCRIPT_VERSION = "0.3.0"
 
 # =====================================================================================================
 # SETTINGS  -  edit these. Everything a coach needs to change is in this block.
@@ -692,7 +692,15 @@ def run(settings, profile_name, input_override=None, output_override=None, key_o
             "output_headers": [h for h, _, _ in out_cols]}
 
 
+def require_python():
+    if sys.version_info < (3, 10):
+        print(f"STOPPED: this script needs Python 3.10 or newer, and this is Python {sys.version_info[0]}.{sys.version_info[1]}. "
+              "Install the newest Python from python.org (README section 1), open a new terminal window, and try again.")
+        sys.exit(1)
+
+
 def main(argv=None):
+    require_python()
     ap = argparse.ArgumentParser(description="Code an athlete monitoring export. Settings are at the top of this file.")
     ap.add_argument("profile", help="which block of SETTINGS to use: " + ", ".join(SETTINGS["profiles"]))
     ap.add_argument("--input", help="code this file instead of the profile's input_file")

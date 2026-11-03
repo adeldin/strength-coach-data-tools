@@ -43,8 +43,13 @@ You need Python 3.10 or newer.
 
 1. Go to <https://www.python.org/downloads/> and click the yellow download button (macOS).
 2. Open the downloaded `.pkg` and click through the installer.
-3. Open *Terminal* (Applications, Utilities, Terminal) and type `python3 --version`. You should see
-   `Python 3.1x.x`.
+3. **Close any Terminal window you already have open**, then open a new one (Applications, Utilities,
+   Terminal). A window that was open before the install keeps using the old Python.
+4. Type `python3 --version`. You should see `Python 3.10` or a higher number, such as `Python 3.13.1`.
+
+Many Macs already have an older Python (3.9) from Apple, so seeing `Python 3.9.6` means the new one is not
+being used yet. Open a new Terminal window and check again. If it still says 3.9, run the installer again.
+The scripts check this too: on an older Python they stop and tell you.
 
 On a Mac, every command below is typed with `python3` instead of `python`.
 
@@ -65,8 +70,8 @@ touch your own data.
 
 ```
 python deidentify.py gps
-python deidentify.py force_plate
 python deidentify.py force_plate_trials
+python deidentify.py force_plate
 python deidentify.py wellness
 python cmj_flags.py
 ```
@@ -76,15 +81,19 @@ Then open `expected_output/expected_answers.md` and compare. You should see, amo
 - the pair `J. Okafor` / `Jamal Okafor` reported as a likely name variant;
 - one athlete reported with two heights 8 cm apart;
 - the goalkeeper reported as a group of one, and the goalkeeper's week-6 injury as a row-level warning;
-- in the force plate file: jump height converted from inches to cm, "Additional Load" from lb to kg,
-  asymmetry values like `6.3 L` split into a number and a side, and one unreadable asymmetry value warned about;
 - in `cmj_flags.py`: exactly **two** athletes flagged in week 8, a third who drops past the SWC but is
-  correctly **not** flagged, one athlete with "not enough data", a test with only 2 reps, a duplicated
-  test day excluded, and one value excluded because centimetres were typed into the inches column.
+  correctly **not** flagged, one athlete with "not enough data", a day with only 2 trials, a duplicated
+  test day excluded, and one value excluded because it was typed in inches;
+- in the ForceDecks file: jump height converted from inches to cm, "Additional Load" from lb to kg,
+  asymmetry values like `6.3 L` split into a number and a side, and one unreadable asymmetry value warned about.
 
-`cmj_season1.csv` uses the real VALD ForceDecks export layout (one row per test, jump height in inches).
-`cmj_trials_season1.csv` is an example of a per-trial export (one row per jump, in cm). To run the
-jump script on the per-trial file, change the four column settings in `cmj_flags.py` as described in section 5.
+The made-up jumps vary by about 4% from day to day in every week, so you will also see some flags in other
+weeks. Only week 8 was built by hand. Those other flags show what ordinary day-to-day noise does with these
+settings: a flag is a prompt to check in, not a finding.
+
+`cmj_trials_season1.csv` is an example of a per-trial export (one row per jump, in cm), and `cmj_flags.py` reads
+it by default. `cmj_season1.csv` uses the real VALD ForceDecks export layout (one row per test, jump height in
+inches). To run the jump script on that file, see "Two kinds of export" in section 5.
 
 Codes are random, so your codes will differ from anyone else's. To see which code belongs to which
 made-up name, open `KEY_DO_NOT_SHARE/athlete_key.csv`.
@@ -97,7 +106,7 @@ Open `deidentify.py` in any text editor (Notepad, TextEdit in plain-text mode, o
 need to change is in the **SETTINGS** block at the top; you do not need to read past it.
 
 1. **Season start date**: `"season_start_date": "2024-08-05"` (year-month-day). Week 1 starts here.
-2. **Pick a profile** (`gps`, `force_plate`, `force_plate_trials` or `wellness`) and set:
+2. **Pick a profile** (`gps`, `force_plate_trials`, `force_plate` or `wellness`) and set:
    - `input_file`: the path to your export, saved as CSV (in Excel: *File, Save As, CSV UTF-8*).
    - `athlete_id_column`: the heading of the column that holds the athlete's name or ID.
    - `keep_columns`: the headings you want in the shared file, **spelled exactly as the export spells
@@ -123,7 +132,7 @@ need to change is in the **SETTINGS** block at the top; you do not need to read 
 5. Run `python deidentify.py gps` (or the profile you edited). Read the report: it is printed on screen
    and saved as `coded_output/deidentify_report_<file>.txt`.
 
-The `force_plate` profile uses the **real heading row of a VALD ForceDecks CMJ export**. The `gps`,
+The `force_plate` profile uses the **real heading row of a VALD ForceDecks CMJ export** (per test). The `gps`,
 `force_plate_trials` and `wellness` profiles are **examples in the style of common systems**, not a specific
 vendor's layout. All four match the synthetic files. Replace them with your own headings.
 
@@ -146,18 +155,21 @@ If a warning remains that you cannot fix by dropping or coarsening a column, do 
 
 ## 5. Run the jump monitoring script
 
-Open `cmj_flags.py` and check the SETTINGS block. If you de-identified a ForceDecks export with the
-`force_plate` profile, the defaults already point at `coded_output/coded_cmj_season1.csv`; change
-`input_file` to your coded file and the column names to match. Column names are matched without their
+Open `cmj_flags.py` and check the SETTINGS block. The defaults read a per-trial file, the coded file from the
+`force_plate_trials` profile: `coded_output/coded_cmj_trials_season1.csv`. Change `input_file` to your coded file
+and the column names to match. Column names are matched without their
 unit and without end spaces, so `Jump Height (Imp-Mom)` finds both the inches heading in a raw export and
 the cm heading in a coded one. The unit itself is read from the file, and inches are converted to cm.
 
 **Two kinds of export.** A **per-trial** export has one row per jump with a trial number
-(set `trial_column`, for example `"Trial"`). A **per-test** export has one row per test day with a `Reps`
-column (set `reps_column`; this is the ForceDecks layout). Per-trial is better: with it the script can
-check how many trials were done and whether one trial disagrees with the others. With a per-test export
-those two checks cannot run, and the report says so. For the per-trial synthetic file set
-`"jump_height_column": "Jump Height (cm)"`, `"trial_column": "Trial"`, `"reps_column": ""`, `"depth_column": ""`.
+(`trial_column`, for example `"Trial"`). This is the default, and the better choice: the script can check how
+many trials were done and whether one trial disagrees with the others.
+
+A **per-test** export has one row per test day with a `Reps` column; this is the ForceDecks layout. **Trial-level
+checks cannot run on a per-test export**, and the report says so. To use one, de-identify it with the
+`force_plate` profile and set `"input_file": "coded_output/coded_cmj_season1.csv"`,
+`"jump_height_column": "Jump Height (Imp-Mom)"`, `"trial_column": ""`, `"reps_column": "Reps"` and
+`"depth_column": "Countermovement Depth"`.
 
 Then:
 
@@ -201,8 +213,8 @@ calculation until you correct the file.
 python -m unittest discover -s tests -v
 ```
 
-The tests confirm that every planted problem in the synthetic squad is caught, that the flagged set is
-exactly the expected one, that the decoy is not flagged, that no original ID survives de-identification,
+The tests confirm that every planted problem in the synthetic squad is caught, that the flagged set in week 8
+is exactly the expected one, that the decoy is not flagged, that no original ID survives de-identification,
 and that input files are never changed. GitHub Actions runs the same suite on Windows and macOS with
 Python 3.10, 3.11 and 3.12 on every change.
 
@@ -213,7 +225,7 @@ Python 3.10, 3.11 and 3.12 on every change.
 | `deidentify.py` | the de-identification script (settings at the top) |
 | `cmj_flags.py` | the CMJ flagging script (settings at the top) |
 | `make_synthetic_squad.py` | rebuilds the made-up squad; fixed seed, identical output every time |
-| `synthetic_data/` | eight CSV exports (GPS, ForceDecks CMJ, per-trial CMJ, wellness; two seasons) |
+| `synthetic_data/` | eight CSV exports (GPS, per-trial CMJ, ForceDecks CMJ, wellness; two seasons) |
 | `expected_output/` | what the scripts should find on the synthetic squad |
 | `tests/` | the automated tests |
 | `CITATION.cff` | how to cite |

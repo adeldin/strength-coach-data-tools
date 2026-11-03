@@ -22,7 +22,7 @@ jobs:
       - name: Run both scripts end to end on the synthetic squad
         run: |
           python deidentify.py gps
-          python deidentify.py force_plate
           python deidentify.py force_plate_trials
+          python deidentify.py force_plate
           python deidentify.py wellness
           python cmj_flags.py

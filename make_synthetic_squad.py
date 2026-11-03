@@ -28,11 +28,15 @@ Planted CMJ problems (season 1, in BOTH force plate files unless stated):
     - in week 8, EXACTLY two players drop enough to flag; one decoy drops past the SWC but not past
       k x TE; one player has too few baseline days
 
+Jump height varies from day to day by about 4% of each player's mean, in every week. With that much noise,
+ordinary days in the other weeks sometimes cross the threshold too. Only week 8 is engineered.
+
 Run:  python make_synthetic_squad.py
 """
 
 import csv
 import json
+import math
 import os
 import random
 import statistics
@@ -51,6 +55,9 @@ WEEKS = 14
 CHOSEN_WEEK = 8
 BASELINE_DAYS = 4
 IN = 2.54   # cm per inch
+DAY_TO_DAY_CV = 0.04     # day-to-day variation of a test-day value, as a share of the player's mean
+TRIAL_NOISE_CM = 0.8     # SD of one jump around that day's true height
+DECOY_MARGIN_CM = 0.3    # the decoy's drop stays at least this far from both the SWC and k x TE
 
 FIRST = ["Amara", "Bence", "Carla", "Dario", "Elin", "Farid", "Greta", "Hana", "Ivo", "Jamal", "Kaia", "Luca",
          "Mira", "Nadia", "Oskar", "Pia", "Quentin", "Rosa", "Sven", "Tomas", "Uma", "Vera", "Wim", "Yara",
@@ -177,20 +184,23 @@ def thresholds(data):
     return squad, {n: a["baseline_mean"] for n, a in athletes.items() if a["enough"]}
 
 
+def draw_day(rng, p):
+    """One test day of 3 trials. The day's true height moves enough that the mean of 3 trials varies by DAY_TO_DAY_CV."""
+    day_sd = math.sqrt((DAY_TO_DAY_CV * p["jump"]) ** 2 - TRIAL_NOISE_CM ** 2 / 3)
+    day_true = p["jump"] + rng.gauss(0, day_sd)
+    return [round(day_true + rng.gauss(0, TRIAL_NOISE_CM), 1) for _ in range(3)]
+
+
 def trial_data(rng, players, plants):
     """Per-trial jump heights in cm: {name: {week: [3 trials]}}. Week CHOSEN_WEEK is engineered when plants are given."""
-    trial_noise, day_noise = 0.8, 0.7
     jumps = {}
     for p in players:
-        jumps[p["name"]] = {}
-        for w in range(1, BASELINE_DAYS + 1):
-            day_true = p["jump"] + rng.gauss(0, day_noise)
-            jumps[p["name"]][w] = [round(day_true + rng.gauss(0, trial_noise), 1) for _ in range(3)]
+        jumps[p["name"]] = {w: draw_day(rng, p) for w in range(1, BASELINE_DAYS + 1)}
     est = {p["name"]: p["jump"] for p in players}
+    squad = None
     if plants:
         squad, est = thresholds({n: d for n, d in jumps.items() if n != plants["not_enough"]})
         plants["decoy_drop"] = round((squad["swc"] + squad["k_te"]) / 2, 2)
-        plants["thresholds_trials"] = {k: round(v, 3) for k, v in squad.items() if isinstance(v, float)}
     for p in players:
         name = p["name"]
         for w in range(BASELINE_DAYS + 1, WEEKS + 1):
@@ -200,12 +210,31 @@ def trial_data(rng, players, plants):
                 drop = plants["decoy_drop"] if name == plants["decoy"] else plants["flag_drops"][plants["flagged"].index(name)]
                 jumps[name][w] = exact_trials(est[name] - drop)
                 continue
-            centre = est[name] + rng.uniform(-0.3, 0.6)
-            jumps[name][w] = [round(centre + rng.uniform(-0.25, 0.25), 1) for _ in range(3)]
+            jumps[name][w] = draw_day(rng, p)
+            while plants and w == CHOSEN_WEEK and est[name] - statistics.fmean(jumps[name][w]) > squad["swc"] - DECOY_MARGIN_CM:
+                jumps[name][w] = draw_day(rng, p)      # in the chosen week only the planted players drop past the SWC
     if plants:
         ne = plants["not_enough"]
         jumps[ne] = {7: jumps[ne][1], 8: jumps[ne][2]}                     # tested only in weeks 7 and 8
     return jumps
+
+
+def align_decoy_trials(jumps, decoy, target):
+    """Set the decoy's trials so its drop in the per-trial file equals target to 0.01 cm, the drop in the per-test file.
+    The per-test file can only move in steps of 0.1 inch, so the per-trial file is the one that follows."""
+    steps = [i / 10 for i in range(-4, 5)]
+    for nudge in sorted(steps, key=abs):
+        week1 = [round(jumps[decoy][1][0] + nudge, 1)] + jumps[decoy][1][1:]
+        days = [week1] + [jumps[decoy][w] for w in range(2, BASELINE_DAYS + 1)]
+        baseline = statistics.fmean(statistics.fmean(d) for d in days)
+        centre = round(baseline - target, 1)
+        for a in steps:
+            for b in steps:
+                trials = [round(centre + a, 1), centre, round(centre + b, 1)]
+                if round(baseline - statistics.fmean(trials), 2) == round(target, 2):
+                    jumps[decoy][1], jumps[decoy][CHOSEN_WEEK] = week1, trials
+                    return
+    raise RuntimeError("could not match the decoy's drop across the two force plate files")
 
 
 def trial_rows(rng, players, start, jumps, plants):
@@ -229,6 +258,11 @@ def trial_rows(rng, players, start, jumps, plants):
     return rows
 
 
+def to_coded_cm(inches):
+    """An inch value as it appears in the coded file: deidentify.py rounds its conversions to 2 decimals."""
+    return round(inches * IN, 2)
+
+
 def forcedecks_values(rng, jumps, plants):
     """Per-test values in INCHES (one decimal): {name: {week: inches}}. The decoy is tuned so that, after
     conversion back to cm, its week-8 drop sits between the SWC and k x TE despite the coarser rounding."""
@@ -237,22 +271,23 @@ def forcedecks_values(rng, jumps, plants):
         return vals, None
     decoy = plants["decoy"]
     for _ in range(60):
-        cm = {n: {w: [v * IN] for w, v in d.items() if n != decoy or w != CHOSEN_WEEK} for n, d in vals.items()}
+        cm = {n: {w: [to_coded_cm(v)] for w, v in d.items() if n != decoy or w != CHOSEN_WEEK} for n, d in vals.items()}
         squad, est = thresholds(cm)
         target = (squad["swc"] + squad["k_te"]) / 2
         v = round((est[decoy] - target) / IN, 1)
-        drop = est[decoy] - v * IN
-        if squad["swc"] + 0.004 < drop < squad["k_te"] - 0.004:
+        drop = est[decoy] - to_coded_cm(v)
+        if squad["swc"] + DECOY_MARGIN_CM <= drop <= squad["k_te"] - DECOY_MARGIN_CM:
             vals[decoy][CHOSEN_WEEK] = v
             break
         # nudge one baseline day of the decoy by 0.1 in (moves its baseline mean by 0.0635 cm) and try again
         vals[decoy][1] = round(vals[decoy][1] + (0.1 if drop < target else -0.1), 1)
     else:
         raise RuntimeError("could not tune the decoy for the per-test file")
-    cm = {n: {w: [v * IN] for w, v in d.items()} for n, d in vals.items()}
+    cm = {n: {w: [to_coded_cm(v)] for w, v in d.items()} for n, d in vals.items()}
     squad, est = thresholds(cm)
     plants["thresholds_forcedecks"] = {k: round(v, 3) for k, v in squad.items() if isinstance(v, float)}
-    plants["decoy_drop_forcedecks"] = round(est[decoy] - vals[decoy][CHOSEN_WEEK] * IN, 3)
+    plants["decoy_drop_forcedecks"] = round(est[decoy] - to_coded_cm(vals[decoy][CHOSEN_WEEK]), 2)
+    plants["flag_drops_forcedecks"] = [round(est[n] - to_coded_cm(vals[n][CHOSEN_WEEK]), 2) for n in plants["flagged"]]
     return vals, squad
 
 
@@ -320,8 +355,13 @@ def main(out_dir=None, expected_dir=None):
     write_csv(os.path.join(OUT, "gps_season1.csv"), GPS_COLS, gps_rows(rng, s1, SEASONS[1], plants))
     write_csv(os.path.join(OUT, "wellness_season1.csv"), WELL_COLS, wellness_rows(rng, s1, SEASONS[1], plants))
     jumps1 = trial_data(rng, s1, plants)
-    write_csv(os.path.join(OUT, "cmj_trials_season1.csv"), TRIAL_COLS, trial_rows(rng, s1, SEASONS[1], jumps1, plants))
     fd1, _ = forcedecks_values(rng, jumps1, plants)
+    align_decoy_trials(jumps1, plants["decoy"], plants["decoy_drop_forcedecks"])
+    squad1, est1 = thresholds(jumps1)
+    plants["thresholds_trials"] = {k: round(v, 3) for k, v in squad1.items() if isinstance(v, float)}
+    plants["decoy_drop"] = plants["decoy_drop_forcedecks"]
+    plants["flag_drops"] = [round(est1[n] - statistics.fmean(jumps1[n][CHOSEN_WEEK]), 2) for n in plants["flagged"]]
+    write_csv(os.path.join(OUT, "cmj_trials_season1.csv"), TRIAL_COLS, trial_rows(rng, s1, SEASONS[1], jumps1, plants))
     write_csv(os.path.join(OUT, "cmj_season1.csv"), FORCEDECKS_COLS, forcedecks_rows(rng, s1, SEASONS[1], fd1, plants))
 
     # season 2: 8 of 28 leave (29%), 8 join; no plants
@@ -342,7 +382,7 @@ def main(out_dir=None, expected_dir=None):
 
     common = {
         "chosen_week": CHOSEN_WEEK,
-        "flagged_in_chosen_week": plants["flagged"], "planted_drops_cm": plants["flag_drops"],
+        "flagged_in_chosen_week": plants["flagged"],
         "decoy_not_flagged": plants["decoy"],
         "not_enough_data": plants["not_enough"],
         "duplicated_test_day": {"player": plants["duplicated_day"], "week": 7},
@@ -354,7 +394,7 @@ def main(out_dir=None, expected_dir=None):
             "season_start_date": SEASONS[1].isoformat(), "weeks": WEEKS, "players": 28,
             "cmj_forcedecks": common | {
                 "file": "cmj_season1.csv", "layout": "VALD ForceDecks, one row per test, jump height in inches",
-                "decoy_drop_cm": plants["decoy_drop_forcedecks"],
+                "planted_drops_cm": plants["flag_drops_forcedecks"], "decoy_drop_cm": plants["decoy_drop_forcedecks"],
                 "reps_2": {"player": plants["two_trials"], "week": 6},
                 "cm_typed_into_inches_column": {"player": plants["inches"], "week": 9},
                 "unreadable_asymmetry_value": {"player": plants["asym_unreadable"], "week": 5, "column": "Concentric Impulse % (Asym) (%)"},
@@ -362,7 +402,7 @@ def main(out_dir=None, expected_dir=None):
             },
             "cmj_trials": common | {
                 "file": "cmj_trials_season1.csv", "layout": "example per-trial layout, one row per jump, cm",
-                "decoy_drop_cm": plants["decoy_drop"],
+                "planted_drops_cm": plants["flag_drops"], "decoy_drop_cm": plants["decoy_drop"],
                 "two_trials_only": {"player": plants["two_trials"], "week": 6},
                 "value_in_inches": {"player": plants["inches"], "week": 9, "trial": 2},
                 "thresholds_at_generation_cm": plants["thresholds_trials"],
@@ -388,10 +428,21 @@ def main(out_dir=None, expected_dir=None):
     fdk, tr, d = answers["season1"]["cmj_forcedecks"], answers["season1"]["cmj_trials"], answers["season1"]["deidentify"]
     md = ["# Expected answers for the synthetic squad", "",
           "All names are made up. Codes change on every run of deidentify.py, so these are by name; the key file maps them.", "",
-          "## cmj_flags.py on cmj_season1.csv (ForceDecks layout, per test, inches) after `deidentify.py force_plate`",
-          f"- Chosen week: {fdk['chosen_week']}",
-          f"- Flagged in that week: {fdk['flagged_in_chosen_week'][0]} (drop about {fdk['planted_drops_cm'][0]} cm), "
-          f"{fdk['flagged_in_chosen_week'][1]} (drop about {fdk['planted_drops_cm'][1]} cm)",
+          "Jump height varies by about 4% from day to day in every week, so ordinary days in other weeks can also be flagged.",
+          "Only week 8 is engineered; the lists below are for that week.", "",
+          "## cmj_flags.py on cmj_trials_season1.csv (per-trial layout, cm, the default) after `deidentify.py force_plate_trials`",
+          f"- Chosen week: {tr['chosen_week']}; flagged: {tr['flagged_in_chosen_week'][0]} ({tr['planted_drops_cm'][0]} cm), "
+          f"{tr['flagged_in_chosen_week'][1]} ({tr['planted_drops_cm'][1]} cm)",
+          f"- Decoy, NOT flagged: {tr['decoy_not_flagged']} (drop {tr['decoy_drop_cm']} cm: past the SWC, short of k x TE)",
+          f"- Not enough data: {tr['not_enough_data']} (tested in weeks 7 and 8 only)",
+          f"- Only 2 trials: {tr['two_trials_only']['player']}, week 6",
+          f"- Duplicated test day: {tr['duplicated_test_day']['player']}, week 7 (trials 1,2,3,1,2,3; day excluded)",
+          f"- Value in inches: {tr['value_in_inches']['player']}, week 9, trial 2 (excluded; day then has 2 trials)",
+          f"- Thresholds when the data were generated: TE {tr['thresholds_at_generation_cm']['te']} cm, "
+          f"SWC {tr['thresholds_at_generation_cm']['swc']} cm, k x TE {tr['thresholds_at_generation_cm']['k_te']} cm",
+          "", "## cmj_flags.py on cmj_season1.csv (ForceDecks layout, per test, inches, the second option) after `deidentify.py force_plate`",
+          f"- Chosen week: {fdk['chosen_week']}; flagged: {fdk['flagged_in_chosen_week'][0]} ({fdk['planted_drops_cm'][0]} cm), "
+          f"{fdk['flagged_in_chosen_week'][1]} ({fdk['planted_drops_cm'][1]} cm)",
           f"- Decoy, NOT flagged: {fdk['decoy_not_flagged']} (drop {fdk['decoy_drop_cm']} cm: past the SWC, short of k x TE)",
           f"- Not enough data: {fdk['not_enough_data']} (tested in weeks 7 and 8 only)",
           f"- Reps = 2: {fdk['reps_2']['player']}, week 6 (a note; trials are not in a per-test export)",
@@ -400,16 +451,6 @@ def main(out_dir=None, expected_dir=None):
           f"- Unreadable asymmetry value: {fdk['unreadable_asymmetry_value']['player']}, week 5 (deidentify.py warning)",
           f"- Thresholds when the data were generated: TE {fdk['thresholds_at_generation_cm']['te']} cm, "
           f"SWC {fdk['thresholds_at_generation_cm']['swc']} cm, k x TE {fdk['thresholds_at_generation_cm']['k_te']} cm",
-          "", "## cmj_flags.py on cmj_trials_season1.csv (per-trial layout, cm) after `deidentify.py force_plate_trials`",
-          f"- Chosen week: {tr['chosen_week']}; flagged: {tr['flagged_in_chosen_week'][0]} ({tr['planted_drops_cm'][0]} cm), "
-          f"{tr['flagged_in_chosen_week'][1]} ({tr['planted_drops_cm'][1]} cm)",
-          f"- Decoy, NOT flagged: {tr['decoy_not_flagged']} (drop {tr['decoy_drop_cm']} cm)",
-          f"- Not enough data: {tr['not_enough_data']}",
-          f"- Only 2 trials: {tr['two_trials_only']['player']}, week 6",
-          f"- Duplicated test day: {tr['duplicated_test_day']['player']}, week 7 (trials 1,2,3,1,2,3; day excluded)",
-          f"- Value in inches: {tr['value_in_inches']['player']}, week 9, trial 2 (excluded; day then has 2 trials)",
-          f"- Thresholds when the data were generated: TE {tr['thresholds_at_generation_cm']['te']} cm, "
-          f"SWC {tr['thresholds_at_generation_cm']['swc']} cm, k x TE {tr['thresholds_at_generation_cm']['k_te']} cm",
           "", "## deidentify.py on season 1",
           f"- Conflicting heights: {d['conflicting_heights']['player']} ({d['conflicting_heights']['heights_cm'][0]} and "
           f"{d['conflicting_heights']['heights_cm'][1]} cm) in gps_season1.csv",

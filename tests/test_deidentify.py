@@ -153,7 +153,9 @@ class DeidentifyTests(unittest.TestCase):
             self.assertIn(col, dropped_line)
         # the jump script's outputs must not carry them either
         import cmj_flags
-        s = dict(cmj_flags.SETTINGS) | {"input_file": r["output_file"], "output_folder": os.path.join(self.tmp, "cmj")}
+        s = dict(cmj_flags.SETTINGS) | {"input_file": r["output_file"], "output_folder": os.path.join(self.tmp, "cmj"),
+                                        "jump_height_column": "Jump Height (Imp-Mom)", "trial_column": "", "reps_column": "Reps",
+                                        "depth_column": "Countermovement Depth"}
         out = cmj_flags.run(s)
         for path in (out["results_file"], out["report_file"]):
             with open(path, encoding="utf-8") as f:
