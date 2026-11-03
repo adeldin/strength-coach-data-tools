@@ -32,7 +32,7 @@ Needs Python 3.10 or newer. Uses nothing outside Python's own standard library. 
 Never changes or overwrites your input file, and never replaces an existing output unless you add --overwrite.
 """
 
-SCRIPT_VERSION = "1.0.1"
+SCRIPT_VERSION = "1.0.2"
 
 # =====================================================================================================
 # SETTINGS  -  everything a coach needs to change is in this block.
