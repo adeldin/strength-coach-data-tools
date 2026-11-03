@@ -383,7 +383,7 @@ def main(out_dir=None, expected_dir=None):
                     "joined_in_season2": sorted(p["name"] for p in joiners),
                     "turnover_percent": round(100 * 8 / 28, 1), "planted_problems": "none"},
     }
-    with open(os.path.join(EXPECTED, "expected_answers.json"), "w", encoding="utf-8") as f:
+    with open(os.path.join(EXPECTED, "expected_answers.json"), "w", newline="\n", encoding="utf-8") as f:
         json.dump(answers, f, indent=2)
     fdk, tr, d = answers["season1"]["cmj_forcedecks"], answers["season1"]["cmj_trials"], answers["season1"]["deidentify"]
     md = ["# Expected answers for the synthetic squad", "",
@@ -421,7 +421,7 @@ def main(out_dir=None, expected_dir=None):
           "- ForceDecks file: jump height converted from inches to cm, Additional Load from lb to kg, asymmetry columns split into number and side",
           "", "## Season 2", f"- {len(answers['season2']['left_after_season1'])} players left, {len(answers['season2']['joined_in_season2'])} joined "
           f"({answers['season2']['turnover_percent']}% turnover). No planted problems."]
-    with open(os.path.join(EXPECTED, "expected_answers.md"), "w", encoding="utf-8") as f:
+    with open(os.path.join(EXPECTED, "expected_answers.md"), "w", newline="\n", encoding="utf-8") as f:
         f.write("\n".join(md) + "\n")
     print(f"Wrote 8 files to {OUT} and the expected answers to {EXPECTED}.")
     print(f"Per-trial thresholds: {plants['thresholds_trials']}; decoy drop {plants['decoy_drop']} cm")

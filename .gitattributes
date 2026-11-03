@@ -1,0 +1,3 @@
+# The tests compare these byte for byte, so git must not change their line endings on checkout.
+synthetic_data/*.csv -text
+expected_output/* -text
