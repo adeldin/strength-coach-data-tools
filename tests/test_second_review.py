@@ -129,6 +129,12 @@ class Fix01KeyBackup(ChangeBase):
 
 
 class Fix02PartialWrites(ChangeBase):
+    def setUp(self):
+        super().setUp()
+        patcher = mock.patch("time.sleep")     # these tests hold a file locked on purpose; do not really wait
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_report_destination_is_a_folder_and_nothing_is_written(self):
         self.export()
         os.makedirs(self.out_path(REPORT))

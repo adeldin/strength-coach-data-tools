@@ -35,35 +35,36 @@ Never changes or overwrites your input file, and never replaces an existing outp
 SCRIPT_VERSION = "1.0.0"
 
 # =====================================================================================================
-# SETTINGS  -  edit these. Everything a coach needs to change is in this block.
+# SETTINGS  -  everything a coach needs to change is in this block.
+# Each setting says "CHANGE THIS for your own data" or "LEAVE AS IS for your first runs".
 # =====================================================================================================
 
 SETTINGS = {
     # Where the coded files and the report go. Created if it does not exist.
-    "output_folder": "coded_output",
+    "output_folder": "coded_output",  # LEAVE AS IS for your first runs
 
     # Where the name-to-code KEY goes. Keep this folder off shared drives and out of any AI tool.
     # Point every export at the SAME key folder so an athlete keeps one code across GPS, force plate
     # and wellness files, and across seasons.
-    "key_folder": "KEY_DO_NOT_SHARE",
-    "key_file": "athlete_key.csv",
+    "key_folder": "KEY_DO_NOT_SHARE",  # LEAVE AS IS for your first runs
+    "key_file": "athlete_key.csv",  # LEAVE AS IS for your first runs
 
     # First day of the season, written year-month-day. Week 1 starts on this date.
-    "season_start_date": "2024-08-05",
+    "season_start_date": "2024-08-05",  # CHANGE THIS for your own data
 
     # An athlete, or a row, is reported when fewer than this many DIFFERENT athletes share its traits.
-    "minimum_group_size": 5,
+    "minimum_group_size": 5,  # LEAVE AS IS for your first runs
 
     # Body mass and height are replaced by bands of this width (after conversion to kg and cm).
-    "body_mass_band_kg": 5,
-    "height_band_cm": 5,
+    "body_mass_band_kg": 5,  # LEAVE AS IS for your first runs
+    "height_band_cm": 5,  # LEAVE AS IS for your first runs
 
     # One athlete recorded with two heights further apart than this is reported as a conflict.
-    "height_tolerance_cm": 3,
+    "height_tolerance_cm": 3,  # LEAVE AS IS for your first runs
 
     # Positions as they appear in your export, and the broader group each becomes. A position that
     # is not listed here is left blank, counted, and named only in the private report. Edit freely.
-    "position_groups": {
+    "position_groups": {  # LEAVE AS IS for your first runs
         "GK": "Goalkeeper",
         "CB": "Defender", "LB": "Defender", "RB": "Defender", "DF": "Defender",
         "CM": "Midfielder", "DM": "Midfielder", "AM": "Midfielder", "MF": "Midfielder",
@@ -73,7 +74,7 @@ SETTINGS = {
     # If the same athlete appears under two spellings, say which is which here. The script never
     # guesses: it only lists likely variants in the report for you to decide.
     #   example: "id_aliases": {"J. Okafor": "Jamal Okafor"},
-    "id_aliases": {},
+    "id_aliases": {},  # LEAVE AS IS for your first runs
 
     # One profile per kind of export. Spaces at the start or end of a heading are ignored, so
     # "RSI-modified [m/s] " in the export matches "RSI-modified [m/s]" here. Otherwise headings must
@@ -94,38 +95,38 @@ SETTINGS = {
     "profiles": {
         # EXAMPLE layout in the style of a GPS system export. Replace with your own headings.
         "gps": {
-            "input_file": "synthetic_data/gps_season1.csv",
-            "athlete_id_column": "Player Name",
-            "keep_columns": ["Player Name", "Date", "Position", "Class Year", "Height (cm)",
+            "input_file": "synthetic_data/gps_season1.csv",  # CHANGE THIS for your own data
+            "athlete_id_column": "Player Name",  # CHANGE THIS for your own data
+            "keep_columns": ["Player Name", "Date", "Position", "Class Year", "Height (cm)",  # CHANGE THIS for your own data
                              "Body Mass (kg)", "Session Type", "Total Distance (m)",
                              "High Speed Running (m)", "Sprint Distance (m)", "Max Velocity (km/h)",
                              "Player Load", "Duration (min)"],
-            "date_columns": ["Date"],
+            "date_columns": ["Date"],  # CHANGE THIS for your own data
             # How dates are written in the export: "%m/%d/%Y" is 08/05/2024, "%d/%m/%Y" is 05/08/2024,
             # "%Y-%m-%d" is 2024-08-05. Required: the script stops if it is blank.
-            "date_format": "%m/%d/%Y",
-            "session_column": "",
-            "column_types": {"Session Type": "category"},
-            "allowed_values": {"Session Type": ["Training", "Match"],
+            "date_format": "%m/%d/%Y",  # CHANGE THIS for your own data
+            "session_column": "",  # LEAVE AS IS for your first runs
+            "column_types": {"Session Type": "category"},  # LEAVE AS IS for your first runs
+            "allowed_values": {"Session Type": ["Training", "Match"],  # LEAVE AS IS for your first runs
                                "Class Year": ["Freshman", "Sophomore", "Junior", "Senior"]},
-            "allowed_text_columns": [],
-            "position_column": "Position",
-            "class_year_column": "Class Year",
-            "height_column": "Height (cm)",
-            "body_mass_column": "Body Mass (kg)",
+            "allowed_text_columns": [],  # LEAVE AS IS for your first runs
+            "position_column": "Position",  # LEAVE AS IS for your first runs
+            "class_year_column": "Class Year",  # LEAVE AS IS for your first runs
+            "height_column": "Height (cm)",  # LEAVE AS IS for your first runs
+            "body_mass_column": "Body Mass (kg)",  # LEAVE AS IS for your first runs
             # Columns whose entries describe an event (an injury, an illness, a return to play).
-            "event_columns": [],
+            "event_columns": [],  # LEAVE AS IS for your first runs
             # Columns holding a value and a side letter, like "6.3 L". Columns with "(Asym)" in the
             # heading are found automatically; list any others here.
-            "asymmetry_columns": [],
+            "asymmetry_columns": [],  # LEAVE AS IS for your first runs
         },
         # REAL layout: a VALD ForceDecks CMJ export (one row per test, with a Reps column). Jump height
         # is exported in inches; the script converts it to cm and renames the heading. Every metric column
         # is kept; ExternalId, Tags and Time are always dropped.
         "force_plate": {
-            "input_file": "synthetic_data/cmj_season1.csv",
-            "athlete_id_column": "Name",
-            "keep_columns": ["Name", "Test Type", "Date", "BW [KG]", "Reps", "Additional Load [lb]",
+            "input_file": "synthetic_data/cmj_season1.csv",  # CHANGE THIS for your own data
+            "athlete_id_column": "Name",  # CHANGE THIS for your own data
+            "keep_columns": ["Name", "Test Type", "Date", "BW [KG]", "Reps", "Additional Load [lb]",  # CHANGE THIS for your own data
                              "Jump Height (Imp-Mom) in Inches [in]", "RSI-modified [m/s]", "Peak Landing Force [N]",
                              "Peak Power / BM [W/kg]", "Concentric RFD [N/s] (L)", "Concentric Peak Force [N] (L)",
                              "Concentric Peak Force [N] (R)", "Peak Landing Force [N] (L)", "Peak Landing Force [N] (R)",
@@ -134,56 +135,56 @@ SETTINGS = {
                              "Eccentric Duration [ms]", "Flight Time:Contraction Time",
                              "Concentric Impulse % (Asym) (%)", "Peak Landing Force % (Asym) (%)",
                              "Eccentric Deceleration RFD [N/s]", "Eccentric Deceleration Mean Force [N]"],
-            "date_columns": ["Date"],
-            "date_format": "%m/%d/%Y",
-            "session_column": "",
-            "column_types": {"Test Type": "category"},
-            "allowed_values": {"Test Type": ["CMJ"]},
-            "allowed_text_columns": [],
-            "position_column": "",
-            "class_year_column": "",
-            "height_column": "",
-            "body_mass_column": "BW [KG]",
-            "event_columns": [],
-            "asymmetry_columns": [],
+            "date_columns": ["Date"],  # CHANGE THIS for your own data
+            "date_format": "%m/%d/%Y",  # CHANGE THIS for your own data
+            "session_column": "",  # LEAVE AS IS for your first runs
+            "column_types": {"Test Type": "category"},  # LEAVE AS IS for your first runs
+            "allowed_values": {"Test Type": ["CMJ"]},  # LEAVE AS IS for your first runs
+            "allowed_text_columns": [],  # LEAVE AS IS for your first runs
+            "position_column": "",  # LEAVE AS IS for your first runs
+            "class_year_column": "",  # LEAVE AS IS for your first runs
+            "height_column": "",  # LEAVE AS IS for your first runs
+            "body_mass_column": "BW [KG]",  # LEAVE AS IS for your first runs
+            "event_columns": [],  # LEAVE AS IS for your first runs
+            "asymmetry_columns": [],  # LEAVE AS IS for your first runs
         },
         # EXAMPLE layout for a per-trial (one row per jump) force plate export in cm.
         "force_plate_trials": {
-            "input_file": "synthetic_data/cmj_trials_season1.csv",
-            "athlete_id_column": "Name",
-            "keep_columns": ["Name", "Date", "Test Type", "Trial", "Jump Height (cm)",
+            "input_file": "synthetic_data/cmj_trials_season1.csv",  # CHANGE THIS for your own data
+            "athlete_id_column": "Name",  # CHANGE THIS for your own data
+            "keep_columns": ["Name", "Date", "Test Type", "Trial", "Jump Height (cm)",  # CHANGE THIS for your own data
                              "Peak Power (W)", "RSI-modified", "Body Mass (kg)"],
-            "date_columns": ["Date"],
-            "date_format": "%m/%d/%Y",
-            "session_column": "",
-            "column_types": {"Test Type": "category"},
-            "allowed_values": {"Test Type": ["CMJ"]},
-            "allowed_text_columns": [],
-            "position_column": "",
-            "class_year_column": "",
-            "height_column": "",
-            "body_mass_column": "Body Mass (kg)",
-            "event_columns": [],
-            "asymmetry_columns": [],
+            "date_columns": ["Date"],  # CHANGE THIS for your own data
+            "date_format": "%m/%d/%Y",  # CHANGE THIS for your own data
+            "session_column": "",  # LEAVE AS IS for your first runs
+            "column_types": {"Test Type": "category"},  # LEAVE AS IS for your first runs
+            "allowed_values": {"Test Type": ["CMJ"]},  # LEAVE AS IS for your first runs
+            "allowed_text_columns": [],  # LEAVE AS IS for your first runs
+            "position_column": "",  # LEAVE AS IS for your first runs
+            "class_year_column": "",  # LEAVE AS IS for your first runs
+            "height_column": "",  # LEAVE AS IS for your first runs
+            "body_mass_column": "Body Mass (kg)",  # LEAVE AS IS for your first runs
+            "event_columns": [],  # LEAVE AS IS for your first runs
+            "asymmetry_columns": [],  # LEAVE AS IS for your first runs
         },
         # EXAMPLE layout in the style of a wellness questionnaire export.
         "wellness": {
-            "input_file": "synthetic_data/wellness_season1.csv",
-            "athlete_id_column": "Athlete",
-            "keep_columns": ["Athlete", "Date", "Position", "Sleep Hours", "Sleep Quality (1-5)",
+            "input_file": "synthetic_data/wellness_season1.csv",  # CHANGE THIS for your own data
+            "athlete_id_column": "Athlete",  # CHANGE THIS for your own data
+            "keep_columns": ["Athlete", "Date", "Position", "Sleep Hours", "Sleep Quality (1-5)",  # CHANGE THIS for your own data
                              "Fatigue (1-5)", "Soreness (1-5)", "Stress (1-5)", "Injury/Illness"],
-            "date_columns": ["Date"],
-            "date_format": "%m/%d/%Y",
-            "session_column": "",
-            "column_types": {},
-            "allowed_values": {"Injury/Illness": ["Injury", "Illness"]},
-            "allowed_text_columns": [],
-            "position_column": "Position",
-            "class_year_column": "",
-            "height_column": "",
-            "body_mass_column": "",
-            "event_columns": ["Injury/Illness"],
-            "asymmetry_columns": [],
+            "date_columns": ["Date"],  # CHANGE THIS for your own data
+            "date_format": "%m/%d/%Y",  # CHANGE THIS for your own data
+            "session_column": "",  # LEAVE AS IS for your first runs
+            "column_types": {},  # LEAVE AS IS for your first runs
+            "allowed_values": {"Injury/Illness": ["Injury", "Illness"]},  # LEAVE AS IS for your first runs
+            "allowed_text_columns": [],  # LEAVE AS IS for your first runs
+            "position_column": "Position",  # LEAVE AS IS for your first runs
+            "class_year_column": "",  # LEAVE AS IS for your first runs
+            "height_column": "",  # LEAVE AS IS for your first runs
+            "body_mass_column": "",  # LEAVE AS IS for your first runs
+            "event_columns": ["Injury/Illness"],  # LEAVE AS IS for your first runs
+            "asymmetry_columns": [],  # LEAVE AS IS for your first runs
         },
     },
 }
@@ -202,6 +203,7 @@ import secrets
 import shutil
 import sys
 import tempfile
+import time
 from collections import Counter, defaultdict
 from datetime import date, datetime
 from itertools import combinations
@@ -229,6 +231,7 @@ INFO = "WARNING [INFORMATION ONLY]"
 GENERATED_KINDS = {"code", "week", "session", "band", "side"}   # the script wrote these cells itself, so they cannot hold an ID
 FORMULA_STARTS = ("=", "+", "-", "@")                           # a spreadsheet can run a text cell that starts with one of these
 SHORT_NUMERIC_ID_DIGITS = 5
+RETRY_WAITS = (0.2, 0.4, 0.8, 1.6)      # seconds between the attempts at a locked file: 5 attempts in about 3 seconds
 
 
 class StopRun(Exception):
@@ -374,6 +377,39 @@ def write_temp(path, temps, write):
     return tmp
 
 
+def file_identity(path):
+    """What this path points at right now, or None if nothing is there. Does not follow a symbolic link."""
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError:
+        return None
+    return (info.st_dev, info.st_ino)
+
+
+def retry_if_locked(action, check=None):
+    """Do one file step. Antivirus or cloud sync can hold a new file for a moment, so if the step is refused,
+    wait and try again, up to RETRY_ATTEMPTS times. check runs before every attempt and can stop the run."""
+    for wait in RETRY_WAITS + (None,):
+        if check:
+            check()
+        try:
+            return action()
+        except PermissionError:
+            if wait is None:
+                raise
+            time.sleep(wait)
+
+
+def remove_temps(temps):
+    """Remove only the temporary files this run created. A file that stays locked is left behind rather than hiding the real message."""
+    for tmp in temps:
+        try:
+            if os.path.exists(tmp):
+                retry_if_locked(lambda: os.remove(tmp))
+        except OSError:
+            pass
+
+
 def publish_all(moves, temps):
     """moves: [(temporary file, destination, private?)]. All of them go into place, or the earlier ones are undone and
     the stop message says exactly what happened. Each move is one step, so no file is ever left half written."""
@@ -382,31 +418,43 @@ def publish_all(moves, temps):
         for tmp, path, private in moves:
             if os.path.islink(path):
                 raise StopRun(f"'{path}' is a symbolic link")
+            before = file_identity(path)
+
+            def destination_unchanged():
+                # each attempt re-checks, so waiting for a lock can never get around the overwrite and link protections
+                if os.path.islink(path):
+                    raise StopRun(f"'{path}' became a symbolic link while saving")
+                if file_identity(path) != before:
+                    raise StopRun(f"'{path}' was changed by another program while saving")
+
             saved = None
-            if os.path.exists(path):
+            if before:
                 handle, saved = tempfile.mkstemp(dir=os.path.dirname(path) or ".", prefix=".tmp_", suffix=".previous")
                 os.close(handle)
                 temps.append(saved)
-                shutil.copy2(path, saved)
+                retry_if_locked(lambda: shutil.copy2(path, saved))
             os.chmod(tmp, 0o600 if private else 0o644)
-            os.replace(tmp, path)
+            retry_if_locked(lambda: os.replace(tmp, path), destination_unchanged)
             done.append((path, saved))
     except (OSError, StopRun) as e:
+        reason = (f"'{path}' may be locked by antivirus or cloud sync, such as OneDrive, or be open in another program. "
+                  f"Close the file or pause syncing, then run again" if isinstance(e, PermissionError) else e)
         stuck = []
         for path, saved in reversed(done):
             try:
                 if saved:
-                    os.replace(saved, path)
+                    retry_if_locked(lambda: os.replace(saved, path))
                 else:
-                    os.remove(path)
+                    retry_if_locked(lambda: os.remove(path))
             except OSError:
                 stuck.append(path + (f" (its previous version is at {saved})" if saved else " (new file)"))
                 if saved:
                     temps.remove(saved)     # the coach needs this copy, so the clean-up must not remove it
         if stuck:
-            raise StopRun(f"Saving failed ({e}). These files changed and could not be put back: {'; '.join(stuck)}. "
+            raise StopRun(f"Saving failed: {reason}. These files changed and could not be put back: {'; '.join(stuck)}. "
                           f"Every other file is as it was before this run.") from None
-        raise StopRun(f"Saving failed ({e}). Every file is as it was before this run, and {len(done)} file(s) already saved were put back.") from None
+        raise StopRun(f"Saving failed: {reason}. Nothing was replaced: every file is as it was before this run, "
+                      f"and {len(done)} file(s) already saved were put back.") from None
 
 
 # ------------------------------------------------------------------ dates
@@ -634,9 +682,7 @@ def run(settings, profile_name, input_override=None, output_override=None, key_o
     try:
         return _run(settings, profile_name, input_override, output_override, key_override, overwrite, temps)
     finally:
-        for tmp in temps:       # only the temporary files this run created; never a file that was already there
-            if os.path.exists(tmp):
-                os.remove(tmp)
+        remove_temps(temps)     # only the temporary files this run created; never a file that was already there
 
 
 def _run(settings, profile_name, input_override, output_override, key_override, overwrite, temps):

@@ -35,14 +35,14 @@ replaces an existing output unless you add --overwrite.
 SCRIPT_VERSION = "1.0.0"
 
 # =====================================================================================================
-# SETTINGS  -  edit these.
+# SETTINGS  -  each setting says "CHANGE THIS for your own data" or "LEAVE AS IS for your first runs".
 # =====================================================================================================
 
 SETTINGS = {
     # The file to read. The coded file from deidentify.py is the usual input.
-    "input_file": "coded_output/coded_cmj_trials_season1.csv",
+    "input_file": "coded_output/coded_cmj_trials_season1.csv",  # CHANGE THIS for your own data
     # Where the results CSV and the report go. Created if missing. Must not be the input's folder.
-    "output_folder": "cmj_output",
+    "output_folder": "cmj_output",  # LEAVE AS IS for your first runs
 
     # Column headings. Spaces at the ends and the unit in brackets are ignored when matching, so
     # "Jump Height (Imp-Mom)" matches both "Jump Height (Imp-Mom) in Inches [in]" and
@@ -50,34 +50,34 @@ SETTINGS = {
     # These defaults fit a per-trial export (one row per jump). For a per-test export such as ForceDecks, set:
     # jump_height_column "Jump Height (Imp-Mom)", trial_column "", reps_column "Reps",
     # depth_column "Countermovement Depth". Trial-level checks cannot run on a per-test export.
-    "athlete_column": "Athlete Code",
-    "day_column": "Week",                 # whole week numbers, or dates. One kind per file
-    "session_column": "Session",          # the session number within the week; "" if the day column holds dates
-    "day_format": "",                     # "" for week numbers. Required for dates: "%m/%d/%Y" reads 08/05/2024
-    "jump_height_column": "Jump Height (cm)",
-    "trial_column": "Trial",              # per-trial exports: the trial or rep number column ("" for a per-test export)
-    "reps_column": "",                    # per-test exports: the column that counts the reps in the test (e.g. "Reps")
-    "test_type_column": "Test Type",      # the script stops if this column is missing. "" turns filtering off
-    "test_type_value": "CMJ",             # only rows with this test type are used ("" also turns filtering off)
-    "depth_column": "",                   # optional, e.g. "Countermovement Depth"; exported as a negative number (downward)
+    "athlete_column": "Athlete Code",  # LEAVE AS IS for your first runs
+    "day_column": "Week",  # LEAVE AS IS for your first runs. Whole week numbers, or dates. One kind per file
+    "session_column": "Session",  # LEAVE AS IS for your first runs. The session number within the week; "" if the day column holds dates
+    "day_format": "",  # LEAVE AS IS for your first runs. "" for week numbers. Required for dates: "%m/%d/%Y" reads 08/05/2024
+    "jump_height_column": "Jump Height (cm)",  # CHANGE THIS for your own data
+    "trial_column": "Trial",  # LEAVE AS IS for your first runs. Per-trial exports: the trial or rep number column ("" for a per-test export)
+    "reps_column": "",  # LEAVE AS IS for your first runs. Per-test exports: the column that counts the reps in the test (e.g. "Reps")
+    "test_type_column": "Test Type",  # LEAVE AS IS for your first runs. The script stops if this column is missing. "" turns filtering off
+    "test_type_value": "CMJ",  # LEAVE AS IS for your first runs. Only rows with this test type are used ("" also turns filtering off)
+    "depth_column": "",  # LEAVE AS IS for your first runs. Optional, e.g. "Countermovement Depth"; exported as a negative number (downward)
 
     # The method's numbers. Defaults are the ones described in the article.
-    "expected_trials_per_day": 3,
-    "baseline_days": 4,
-    "swc_multiplier": 0.2,
-    "k": 1.5,
-    "individual_te": False,               # True: each athlete's own TE, when they have enough baseline days
+    "expected_trials_per_day": 3,  # LEAVE AS IS for your first runs
+    "baseline_days": 4,  # LEAVE AS IS for your first runs
+    "swc_multiplier": 0.2,  # LEAVE AS IS for your first runs
+    "k": 1.5,  # LEAVE AS IS for your first runs
+    "individual_te": False,  # LEAVE AS IS for your first runs. True: each athlete's own TE, when they have enough baseline days
 
     # Data checks.
-    "plausible_min_cm": 15,
-    "plausible_max_cm": 80,
-    "exclude_implausible": True,          # values outside the range are left out of every calculation
+    "plausible_min_cm": 15,  # LEAVE AS IS for your first runs
+    "plausible_max_cm": 80,  # LEAVE AS IS for your first runs
+    "exclude_implausible": True,  # LEAVE AS IS for your first runs. Values outside the range are left out of every calculation
     # A trial that differs from the middle trial of its day by more than this share is reported (not excluded).
     # Catches a value typed in inches that still falls inside the plausible range (any jump over 38 cm).
-    "within_day_warning_fraction": 0.30,
+    "within_day_warning_fraction": 0.30,  # LEAVE AS IS for your first runs
     # Countermovement depth is checked on its size regardless of sign (warning only, never excluded).
-    "depth_plausible_min_cm": 10,
-    "depth_plausible_max_cm": 60,
+    "depth_plausible_min_cm": 10,  # LEAVE AS IS for your first runs
+    "depth_plausible_max_cm": 60,  # LEAVE AS IS for your first runs
 }
 
 # =====================================================================================================
@@ -94,6 +94,7 @@ import shutil
 import statistics
 import sys
 import tempfile
+import time
 from collections import defaultdict
 from datetime import datetime
 
@@ -101,6 +102,7 @@ FIX = "[FIX BEFORE USING RESULTS]"
 INFO = "[INFORMATION ONLY]"
 LENGTH_UNITS = {"cm": 1.0, "in": 2.54, "inch": 2.54, "inches": 2.54, "mm": 0.1}
 UNIT_GROUP = re.compile(r"[\[(]([^\[\]()]+)[\])]")
+RETRY_WAITS = (0.2, 0.4, 0.8, 1.6)      # seconds between the attempts at a locked file: 5 attempts in about 3 seconds
 
 
 class StopRun(Exception):
@@ -159,6 +161,39 @@ def write_temp(path, temps, write):
     return tmp
 
 
+def file_identity(path):
+    """What this path points at right now, or None if nothing is there. Does not follow a symbolic link."""
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError:
+        return None
+    return (info.st_dev, info.st_ino)
+
+
+def retry_if_locked(action, check=None):
+    """Do one file step. Antivirus or cloud sync can hold a new file for a moment, so if the step is refused,
+    wait and try again, up to RETRY_ATTEMPTS times. check runs before every attempt and can stop the run."""
+    for wait in RETRY_WAITS + (None,):
+        if check:
+            check()
+        try:
+            return action()
+        except PermissionError:
+            if wait is None:
+                raise
+            time.sleep(wait)
+
+
+def remove_temps(temps):
+    """Remove only the temporary files this run created. A file that stays locked is left behind rather than hiding the real message."""
+    for tmp in temps:
+        try:
+            if os.path.exists(tmp):
+                retry_if_locked(lambda: os.remove(tmp))
+        except OSError:
+            pass
+
+
 def publish_all(moves, temps):
     """moves: [(temporary file, destination)]. All of them go into place, or the earlier ones are undone and the stop
     message says exactly what happened. Each move is one step, so no file is ever left half written."""
@@ -167,31 +202,43 @@ def publish_all(moves, temps):
         for tmp, path in moves:
             if os.path.islink(path):
                 raise StopRun(f"'{path}' is a symbolic link")
+            before = file_identity(path)
+
+            def destination_unchanged():
+                # each attempt re-checks, so waiting for a lock can never get around the overwrite and link protections
+                if os.path.islink(path):
+                    raise StopRun(f"'{path}' became a symbolic link while saving")
+                if file_identity(path) != before:
+                    raise StopRun(f"'{path}' was changed by another program while saving")
+
             saved = None
-            if os.path.exists(path):
+            if before:
                 handle, saved = tempfile.mkstemp(dir=os.path.dirname(path) or ".", prefix=".tmp_", suffix=".previous")
                 os.close(handle)
                 temps.append(saved)
-                shutil.copy2(path, saved)
+                retry_if_locked(lambda: shutil.copy2(path, saved))
             os.chmod(tmp, 0o644)
-            os.replace(tmp, path)
+            retry_if_locked(lambda: os.replace(tmp, path), destination_unchanged)
             done.append((path, saved))
     except (OSError, StopRun) as e:
+        reason = (f"'{path}' may be locked by antivirus or cloud sync, such as OneDrive, or be open in another program. "
+                  f"Close the file or pause syncing, then run again" if isinstance(e, PermissionError) else e)
         stuck = []
         for path, saved in reversed(done):
             try:
                 if saved:
-                    os.replace(saved, path)
+                    retry_if_locked(lambda: os.replace(saved, path))
                 else:
-                    os.remove(path)
+                    retry_if_locked(lambda: os.remove(path))
             except OSError:
                 stuck.append(path + (f" (its previous version is at {saved})" if saved else " (new file)"))
                 if saved:
                     temps.remove(saved)     # the coach needs this copy, so the clean-up must not remove it
         if stuck:
-            raise StopRun(f"Saving failed ({e}). These files changed and could not be put back: {'; '.join(stuck)}. "
+            raise StopRun(f"Saving failed: {reason}. These files changed and could not be put back: {'; '.join(stuck)}. "
                           f"Every other file is as it was before this run.") from None
-        raise StopRun(f"Saving failed ({e}). Every file is as it was before this run, and {len(done)} file(s) already saved were put back.") from None
+        raise StopRun(f"Saving failed: {reason}. Nothing was replaced: every file is as it was before this run, "
+                      f"and {len(done)} file(s) already saved were put back.") from None
 
 
 def unit_of(header):
@@ -547,9 +594,7 @@ def write_outputs(settings, results, squad, warnings, exclusions, counts, info, 
             tmp_report = write_temp(report_file, temps, lambda f: f.write("\n".join(lines) + "\n"))
             publish_all([(tmp_results, results_file), (tmp_report, report_file)], temps)
         finally:
-            for tmp in temps:   # only the temporary files this run created
-                if os.path.exists(tmp):
-                    os.remove(tmp)
+            remove_temps(temps)     # only the temporary files this run created
     return results_file, report_file, lines
 
 

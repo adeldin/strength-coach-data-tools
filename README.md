@@ -12,6 +12,9 @@ monitoring exports (GPS, force plate, wellness) and do not have a data scientist
 They accompany the article *Artificial Intelligence for the Strength Coach Without a Data Scientist*
 (Strength and Conditioning Journal; citation and link to be added on publication).
 
+**New here?** [QUICKSTART.md](QUICKSTART.md) walks you through a first successful run on a made-up squad in about 15 minutes.
+To have someone check these tools for you, send them [REVIEW_CHECKLIST.md](REVIEW_CHECKLIST.md).
+
 **Three things to know before you start**
 
 1. The de-identification script **reduces** re-identification risk. It does **not** make data anonymous.
@@ -25,6 +28,51 @@ They accompany the article *Artificial Intelligence for the Strength Coach Witho
 
 Both scripts use only Python itself: nothing to install beyond Python, no network calls, and your input
 files are never changed. An output file that already exists is never replaced unless you add `--overwrite`.
+
+## What this software does and does not do
+
+**It does:** replace athlete names with codes, keep only the columns you list, turn dates into weeks and sessions, warn where an
+athlete could still be picked out, and flag drops in jump height using the method in section 5.
+
+**It does not:** make data anonymous, find every name in free text, decide anything about an athlete, or replace your compliance
+office. It makes **no network connections**: both scripts use only Python's own tools for files, numbers and dates, and an automated
+test fails if a network module is ever added.
+
+**Independent review:** versions 0.3.0 and 0.4.0 had independent code reviews, and the fixes they led to are in this version. Version
+1.0.0 has not yet had its own independent review.
+
+## The settings to change
+
+For your first runs on your own per-trial jump export, change only these lines. Each setting in both scripts is
+marked `# CHANGE THIS for your own data` or `# LEAVE AS IS for your first runs`.
+
+In `deidentify.py`, at the top of SETTINGS:
+
+```python
+"season_start_date": "2024-08-05",
+```
+
+In `deidentify.py`, in the `force_plate_trials` profile:
+
+```python
+"input_file": "synthetic_data/cmj_trials_season1.csv",
+"athlete_id_column": "Name",
+"keep_columns": ["Name", "Date", "Test Type", "Trial", "Jump Height (cm)",
+                 "Peak Power (W)", "RSI-modified", "Body Mass (kg)"],
+"date_columns": ["Date"],
+"date_format": "%m/%d/%Y",
+```
+
+In `cmj_flags.py`:
+
+```python
+"input_file": "coded_output/coded_cmj_trials_season1.csv",
+"jump_height_column": "Jump Height (cm)",
+```
+
+The other profiles are marked the same way. Section 4 explains each setting. Your export needs columns called `Test Type`
+(with the value `CMJ`) and `Trial`; if yours are called something else, section 4 covers `column_types` and `allowed_values`, and
+section 5 covers the same names in `cmj_flags.py`. Before you use real data, move the key: see "Where to keep the key" in section 4.
 
 ---
 
@@ -258,8 +306,10 @@ Every warning says what to do about it:
   report's own wording and stop the run: use a fuller ID. If the script stops, the new file is not saved and any earlier
   file stays as it was. It also warns about values that look like a person's name in any kept text column.
 
-If saving fails partway, for example because a file is open in Excel, the script puts back every file it had already
-saved. If it cannot, the message says exactly which files changed and where their previous versions are.
+Antivirus and cloud sync, such as OneDrive, can hold a new file for a moment, so if a file is locked, the script waits and tries up to
+5 times over about 3 seconds. Each try first re-checks that nothing else has changed the destination. If saving still fails, the
+message says the file may be locked and to close it or pause syncing. The script puts back every file it had already saved. If it
+cannot, the message says exactly which files changed and where their previous versions are.
 
 If a warning remains that you cannot fix by dropping or coarsening a column, do not share the file.
 
@@ -394,6 +444,10 @@ Python 3.10, 3.11 and 3.12 on every change.
 |---|---|
 | `deidentify.py` | the de-identification script (settings at the top) |
 | `cmj_flags.py` | the CMJ flagging script (settings at the top) |
+| `QUICKSTART.md` | a first successful run, about 15 minutes |
+| `REVIEW_CHECKLIST.md` | a one-page request for a colleague or IT staff to check these tools |
+| `verify_ivo_larsen.xlsx` | one athlete's flag and the squad's TE and SWC, as live Excel formulas to check by hand |
+| `make_verify_spreadsheet.py` | rebuilds that spreadsheet; only this needs an extra package (openpyxl), and coaches never need to run it |
 | `make_synthetic_squad.py` | rebuilds the made-up squad; fixed seed, identical output every time |
 | `synthetic_data/` | eight CSV exports (GPS, per-trial CMJ, ForceDecks CMJ, wellness; two seasons) |
 | `expected_output/` | what the scripts should find on the synthetic squad |
