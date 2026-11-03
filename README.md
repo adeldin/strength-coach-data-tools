@@ -38,8 +38,8 @@ athlete could still be picked out, and flag drops in jump height using the metho
 office. It makes **no network connections**: both scripts use only Python's own tools for files, numbers and dates, and an automated
 test fails if a network module is ever added.
 
-**Independent review:** versions 0.3.0 and 0.4.0 had independent code reviews, and the fixes they led to are in this version. Version
-1.0.0 has not yet had its own independent review.
+**Independent review:** ChatGPT independently reviewed versions 0.3.0 and 0.4.0, and versions 0.4.0 and 0.5.0 fixed the findings. Version
+1.0.0 adds documentation, a retry for locked files, a test fix and the licence. Version 1.0.0 itself has not had an independent review.
 
 ## The settings to change
 

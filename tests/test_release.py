@@ -18,7 +18,7 @@ import cmj_flags  # noqa: E402
 import deidentify  # noqa: E402
 import make_verify_spreadsheet as sheet  # noqa: E402
 from test_review_fixes import CMJ_FILE, cmj_settings, link_or_skip, read_text, write_csv  # noqa: E402
-from test_second_review import OUTPUT, REPORT, ChangeBase  # noqa: E402
+from test_second_review import OUTPUT, REAL_REPLACE, REPORT, ChangeBase, patient  # noqa: E402
 
 README = os.path.join(ROOT, "README.md")
 QUICKSTART = os.path.join(ROOT, "QUICKSTART.md")
@@ -30,41 +30,36 @@ LOCKED = PermissionError(13, "Access is denied")
 
 
 class LockedDestination:
-    """Stands in for os.replace: the named destination is refused this many times, as a file held by antivirus would be."""
+    """Stands in for os.replace: the named destination is refused this many times, as a file held by antivirus would be.
+    Every real move waits out any real lock, so only the simulated refusals reach the script and count as attempts."""
 
-    def __init__(self, name, refusals, before_each=None):
-        self.name, self.refusals, self.before_each = name, refusals, before_each
+    def __init__(self, clock, name, refusals, before_each=None):
+        self.clock, self.name, self.refusals, self.before_each = clock, name, refusals, before_each
         self.attempts, self.sources = 0, []
-        self.real = os.replace
 
     def __call__(self, src, dst):
         if os.path.basename(dst) != self.name:
-            return self.real(src, dst)
+            return patient(REAL_REPLACE, src, dst)
         self.attempts += 1
         self.sources.append(src)
         if self.before_each:
             self.before_each(self.attempts)
         if self.attempts <= self.refusals:
+            self.clock.simulated_lock = self.attempts < 5     # the fifth attempt is the last, so no wait follows it
             raise LOCKED
-        return self.real(src, dst)
+        return patient(REAL_REPLACE, src, dst)
 
 
 class RetryBase(ChangeBase):
-    def setUp(self):
-        super().setUp()
-        patcher = mock.patch("time.sleep")
-        self.sleep = patcher.start()
-        self.addCleanup(patcher.stop)
-
     def waits(self):
-        return [c.args[0] for c in self.sleep.call_args_list]
+        return self.clock.waits
 
 
 class RetryOnLockedFile(RetryBase):
     def test_two_refusals_then_success(self):
         self.first_run()
         self.add_athlete()
-        locked = LockedDestination(OUTPUT, 2)
+        locked = LockedDestination(self.clock, OUTPUT, 2)
         with mock.patch("os.replace", locked):
             r = self.run_it(overwrite=True)
         self.assertEqual(locked.attempts, 3)
@@ -75,7 +70,7 @@ class RetryOnLockedFile(RetryBase):
     def test_every_attempt_refused_stops_plainly_and_replaces_nothing(self):
         before, key_before = self.first_run()
         self.add_athlete()
-        locked = LockedDestination(REPORT, 99)
+        locked = LockedDestination(self.clock, REPORT, 99)
         with mock.patch("os.replace", locked):
             with self.assertRaises(deidentify.StopRun) as cm:
                 self.run_it(overwrite=True)
@@ -87,10 +82,28 @@ class RetryOnLockedFile(RetryBase):
         self.assertEqual(read_text(self.out_path()), before)
         self.assertEqual(read_text(self.key_path()), key_before)
 
+    def test_a_real_lock_does_not_change_the_simulated_sequence(self):
+        self.first_run()
+        self.add_athlete()
+        locked = LockedDestination(self.clock, OUTPUT, 2)
+        real_locks = {"left": 3}
+        real_move = REAL_REPLACE
+
+        def real_lock_then_move(src, dst):
+            if real_locks["left"]:
+                real_locks["left"] -= 1
+                raise LOCKED
+            return real_move(src, dst)
+        with mock.patch("test_release.REAL_REPLACE", real_lock_then_move), mock.patch("os.replace", locked):
+            self.run_it(overwrite=True)
+        self.assertEqual(real_locks["left"], 0)
+        self.assertEqual(locked.attempts, 3)
+        self.assertEqual(self.waits(), [0.2, 0.4])
+
     def test_only_our_own_temporary_file_is_moved(self):
         self.first_run()
         self.add_athlete()
-        locked = LockedDestination(OUTPUT, 2)
+        locked = LockedDestination(self.clock, OUTPUT, 2)
         with mock.patch("os.replace", locked):
             self.run_it(overwrite=True)
         self.assertEqual(len(set(locked.sources)), 1)
@@ -108,9 +121,9 @@ class RetryOnLockedFile(RetryBase):
 
         def swap(attempt):
             if attempt == 1:
-                os.remove(self.out_path())
+                patient(os.remove, self.out_path())
                 os.symlink(target, self.out_path())
-        locked = LockedDestination(OUTPUT, 99, swap)
+        locked = LockedDestination(self.clock, OUTPUT, 99, swap)
         with mock.patch("os.replace", locked):
             with self.assertRaises(deidentify.StopRun) as cm:
                 self.run_it(overwrite=True)
@@ -126,7 +139,7 @@ class RetryOnLockedFile(RetryBase):
             if attempt == 1:
                 with open(self.out_path(), "w", encoding="utf-8") as f:
                     f.write(appeared)
-        locked = LockedDestination(OUTPUT, 99, appear)
+        locked = LockedDestination(self.clock, OUTPUT, 99, appear)
         with mock.patch("os.replace", locked):
             with self.assertRaises(deidentify.StopRun) as cm:
                 self.run_it()
@@ -137,15 +150,14 @@ class RetryOnLockedFile(RetryBase):
     def test_retry_stops_if_the_file_is_swapped_for_another(self):
         self.first_run()
         self.add_athlete()
-        real = os.replace
 
         def swap(attempt):
             if attempt == 1:
                 other = self.out_path("other.csv")
                 with open(other, "w", encoding="utf-8") as f:
                     f.write("swapped\n")
-                real(other, self.out_path())
-        locked = LockedDestination(OUTPUT, 99, swap)
+                patient(REAL_REPLACE, other, self.out_path())
+        locked = LockedDestination(self.clock, OUTPUT, 99, swap)
         with mock.patch("os.replace", locked):
             with self.assertRaises(deidentify.StopRun):
                 self.run_it(overwrite=True)
@@ -153,12 +165,11 @@ class RetryOnLockedFile(RetryBase):
 
     def test_other_errors_are_not_retried(self):
         self.export()
-        real = os.replace
 
         def replace(src, dst):
             if os.path.basename(dst) == OUTPUT:
                 raise OSError(28, "No space left on device")
-            real(src, dst)
+            patient(REAL_REPLACE, src, dst)
         with mock.patch("os.replace", replace):
             with self.assertRaises(deidentify.StopRun) as cm:
                 self.run_it()
@@ -168,6 +179,7 @@ class RetryOnLockedFile(RetryBase):
 
     def test_a_locked_temporary_file_does_not_hide_the_real_message(self):
         self.export()
+        self.clock.skip_every_wait = True
         with mock.patch("os.remove", side_effect=LOCKED), mock.patch.object(deidentify, "verify_output", side_effect=deidentify.StopRun("the real message")):
             with self.assertRaises(deidentify.StopRun) as cm:
                 self.run_it()
@@ -181,7 +193,7 @@ class RetryInJumpScript(RetryBase):
         self.name = f"cmj_results_{os.path.basename(self.src)}"
 
     def test_two_refusals_then_success(self):
-        locked = LockedDestination(self.name, 2)
+        locked = LockedDestination(self.clock, self.name, 2)
         with mock.patch("os.replace", locked):
             out = cmj_flags.run(cmj_settings(self.src, self.out))
         self.assertEqual(locked.attempts, 3)
@@ -192,7 +204,7 @@ class RetryInJumpScript(RetryBase):
         first = cmj_flags.run(cmj_settings(self.src, self.out))
         before = read_text(first["results_file"])
         write_csv(self.src, CMJ_FILE[0], CMJ_FILE[1][:-3])
-        locked = LockedDestination(os.path.basename(first["report_file"]), 99)
+        locked = LockedDestination(self.clock, os.path.basename(first["report_file"]), 99)
         with mock.patch("os.replace", locked):
             with self.assertRaises(cmj_flags.StopRun) as cm:
                 cmj_flags.run(cmj_settings(self.src, self.out), overwrite=True)
@@ -210,9 +222,9 @@ class RetryInJumpScript(RetryBase):
 
         def swap(attempt):
             if attempt == 1:
-                os.remove(first["results_file"])
+                patient(os.remove, first["results_file"])
                 os.symlink(target, first["results_file"])
-        locked = LockedDestination(self.name, 99, swap)
+        locked = LockedDestination(self.clock, self.name, 99, swap)
         with mock.patch("os.replace", locked):
             with self.assertRaises(cmj_flags.StopRun):
                 cmj_flags.run(cmj_settings(self.src, self.out), overwrite=True)
@@ -393,8 +405,9 @@ class CoachDocuments(unittest.TestCase):
         section = text[text.index("## What this software does and does not do"):]
         section = section[:section.index("\n## ", 5)]
         self.assertIn("no network connections", section)
-        self.assertIn("0.4.0", section)
-        self.assertIn("1.0.0", section)
+        for phrase in ("ChatGPT independently reviewed versions 0.3.0 and 0.4.0", "versions 0.4.0 and 0.5.0 fixed the findings",
+                       "itself has not had an independent review"):
+            self.assertIn(phrase, " ".join(section.split()))
         self.assertLessEqual(len(section.split()), 220, "short")
 
     def test_the_files_table_names_the_new_files(self):

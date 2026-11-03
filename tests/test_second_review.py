@@ -6,6 +6,7 @@ import json
 import os
 import re
 import sys
+import time
 import unittest
 from unittest import mock
 
@@ -27,18 +28,56 @@ def hard_link_or_skip(test, target, link):
         test.skipTest("this computer does not allow hard links here")
 
 
-def fail_replace_on(*names):
+# Antivirus or cloud sync on the computer running these tests can really lock a file at any moment. Those real locks
+# must not count as part of a lock a test simulates, so real steps wait them out here, and only simulated locks skip the wait.
+REAL_SLEEP, REAL_REPLACE = time.sleep, os.replace
+
+
+def patient(action, *args):
+    """Do a real file step in a test, waiting out any real lock."""
+    for _ in range(100):
+        try:
+            return action(*args)
+        except PermissionError:
+            REAL_SLEEP(0.1)
+    return action(*args)
+
+
+class LockClock:
+    """Stands in for time.sleep. The wait after a simulated lock is recorded and skipped. Any other wait really happens."""
+
+    def __init__(self):
+        self.waits = []
+        self.simulated_lock = False
+        self.skip_every_wait = False
+
+    def __call__(self, seconds):
+        if self.simulated_lock:
+            self.simulated_lock = False
+            self.waits.append(seconds)
+        elif not self.skip_every_wait:
+            REAL_SLEEP(seconds)
+
+
+def fail_replace_on(clock, *names):
     """A stand-in for os.replace that fails when the destination's name is listed, as a locked file would."""
-    real = os.replace
 
     def replace(src, dst):
         if os.path.basename(dst) in names:
+            clock.simulated_lock = True
             raise PermissionError(f"{os.path.basename(dst)} is locked")
-        real(src, dst)
+        patient(REAL_REPLACE, src, dst)
     return replace
 
 
 class ChangeBase(DeidBase):
+    def setUp(self):
+        super().setUp()
+        self.clock = LockClock()
+        patcher = mock.patch("time.sleep", self.clock)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def key_path(self):
         return os.path.join(self.key, "athlete_key.csv")
 
@@ -73,7 +112,7 @@ class Fix01KeyBackup(ChangeBase):
         src = self.add_athlete()
         before = read_text(src)
         if os.path.exists(self.backup_path()):
-            os.remove(self.backup_path())
+            patient(os.remove, self.backup_path())
         hard_link_or_skip(self, src, self.backup_path())
         with self.assertRaises(deidentify.StopRun) as cm:
             self.run_it(overwrite=True)
@@ -129,12 +168,6 @@ class Fix01KeyBackup(ChangeBase):
 
 
 class Fix02PartialWrites(ChangeBase):
-    def setUp(self):
-        super().setUp()
-        patcher = mock.patch("time.sleep")     # these tests hold a file locked on purpose; do not really wait
-        patcher.start()
-        self.addCleanup(patcher.stop)
-
     def test_report_destination_is_a_folder_and_nothing_is_written(self):
         self.export()
         os.makedirs(self.out_path(REPORT))
@@ -146,7 +179,7 @@ class Fix02PartialWrites(ChangeBase):
 
     def test_private_report_destination_is_a_folder_and_old_output_is_unchanged(self):
         before, key_before = self.first_run()
-        os.remove(os.path.join(self.key, PRIVATE))
+        patient(os.remove, os.path.join(self.key, PRIVATE))
         os.makedirs(os.path.join(self.key, PRIVATE))
         self.add_athlete()
         with self.assertRaises(deidentify.StopRun):
@@ -168,7 +201,7 @@ class Fix02PartialWrites(ChangeBase):
         before, key_before = self.first_run()
         report_before = read_text(self.out_path(REPORT))
         self.add_athlete()
-        with mock.patch("os.replace", fail_replace_on(PRIVATE)):
+        with mock.patch("os.replace", fail_replace_on(self.clock, PRIVATE)):
             with self.assertRaises(deidentify.StopRun) as cm:
                 self.run_it(overwrite=True)
         self.assertIn("put back", str(cm.exception))
@@ -181,7 +214,7 @@ class Fix02PartialWrites(ChangeBase):
 
     def test_a_later_failure_removes_new_files(self):
         self.export()
-        with mock.patch("os.replace", fail_replace_on(REPORT)):
+        with mock.patch("os.replace", fail_replace_on(self.clock, REPORT)):
             with self.assertRaises(deidentify.StopRun):
                 self.run_it()
         self.assertFalse(os.path.exists(self.out_path()))
@@ -190,13 +223,13 @@ class Fix02PartialWrites(ChangeBase):
     def test_when_a_file_cannot_be_put_back_the_message_names_it_and_keeps_its_old_copy(self):
         before, _ = self.first_run()
         self.add_athlete()
-        real = os.replace
         coded = self.out_path()
 
         def replace(src, dst):
             if os.path.basename(dst) == PRIVATE or (dst == coded and src.endswith(".previous")):
+                self.clock.simulated_lock = True
                 raise PermissionError("locked")
-            real(src, dst)
+            patient(REAL_REPLACE, src, dst)
         with mock.patch("os.replace", replace):
             with self.assertRaises(deidentify.StopRun) as cm:
                 self.run_it(overwrite=True)
@@ -220,7 +253,7 @@ class Fix02PartialWrites(ChangeBase):
         first = cmj_flags.run(cmj_settings(src, self.out))
         before = read_text(first["results_file"])
         write_csv(src, CMJ_FILE[0], CMJ_FILE[1][:-3])
-        with mock.patch("os.replace", fail_replace_on(os.path.basename(first["report_file"]))):
+        with mock.patch("os.replace", fail_replace_on(self.clock, os.path.basename(first["report_file"]))):
             with self.assertRaises(cmj_flags.StopRun) as cm:
                 cmj_flags.run(cmj_settings(src, self.out), overwrite=True)
         self.assertIn("put back", str(cm.exception))
