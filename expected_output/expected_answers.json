@@ -19,7 +19,7 @@
       "file": "cmj_season1.csv",
       "layout": "VALD ForceDecks, one row per test, jump height in inches",
       "planted_drops_cm": [
-        2.93,
+        3.93,
         2.67
       ],
       "decoy_drop_cm": 1.52,
@@ -62,7 +62,7 @@
         {
           "player": "Ivo Larsen",
           "week": 8,
-          "drop_cm": 2.93
+          "drop_cm": 3.93
         },
         {
           "player": "Sven Quiroga",
@@ -165,6 +165,98 @@
           "drop_cm": 3.62
         }
       ],
+      "flags_per_week": {
+        "5": 2,
+        "6": 3,
+        "7": 2,
+        "8": 2,
+        "9": 3,
+        "10": 6,
+        "11": 1,
+        "12": 5,
+        "13": 1,
+        "14": 3
+      },
+      "comparison_k": 2.0,
+      "season_flags_comparison_k": [
+        {
+          "player": "Amara Okafor",
+          "week": 6,
+          "drop_cm": 3.74
+        },
+        {
+          "player": "Ivo Larsen",
+          "week": 8,
+          "drop_cm": 3.93
+        },
+        {
+          "player": "Amara Castillo",
+          "week": 9,
+          "drop_cm": 3.17
+        },
+        {
+          "player": "Amara Larsen",
+          "week": 9,
+          "drop_cm": 3.43
+        },
+        {
+          "player": "Amara Okafor",
+          "week": 9,
+          "drop_cm": 3.23
+        },
+        {
+          "player": "Zane Zahra",
+          "week": 10,
+          "drop_cm": 3.3
+        },
+        {
+          "player": "Amara Okafor",
+          "week": 11,
+          "drop_cm": 4.25
+        },
+        {
+          "player": "Amara Larsen",
+          "week": 12,
+          "drop_cm": 3.17
+        },
+        {
+          "player": "Lior Varga",
+          "week": 12,
+          "drop_cm": 2.98
+        },
+        {
+          "player": "Esme Yilmaz",
+          "week": 13,
+          "drop_cm": 4.2
+        },
+        {
+          "player": "Ines Oduya",
+          "week": 14,
+          "drop_cm": 3.11
+        },
+        {
+          "player": "Jamal Okafor",
+          "week": 14,
+          "drop_cm": 3.62
+        }
+      ],
+      "flags_per_week_comparison_k": {
+        "6": 1,
+        "8": 1,
+        "9": 3,
+        "10": 1,
+        "11": 1,
+        "12": 2,
+        "13": 1,
+        "14": 2
+      },
+      "decoy_flags_in_other_weeks": [
+        {
+          "player": "Zane Zahra",
+          "week": 10,
+          "drop_cm": 3.3
+        }
+      ],
       "reps_2": {
         "player": "Maya Pereira",
         "week": 6
@@ -202,7 +294,7 @@
       "file": "cmj_trials_season1.csv",
       "layout": "example per-trial layout, one row per jump, cm",
       "planted_drops_cm": [
-        2.99,
+        3.99,
         2.58
       ],
       "decoy_drop_cm": 1.52,
@@ -245,7 +337,7 @@
         {
           "player": "Ivo Larsen",
           "week": 8,
-          "drop_cm": 2.99
+          "drop_cm": 3.99
         },
         {
           "player": "Sven Quiroga",
@@ -356,6 +448,103 @@
           "player": "Jamal Okafor",
           "week": 14,
           "drop_cm": 3.63
+        }
+      ],
+      "flags_per_week": {
+        "5": 2,
+        "6": 3,
+        "7": 2,
+        "8": 2,
+        "9": 4,
+        "10": 6,
+        "11": 2,
+        "12": 5,
+        "13": 1,
+        "14": 3
+      },
+      "comparison_k": 2.0,
+      "season_flags_comparison_k": [
+        {
+          "player": "Amara Okafor",
+          "week": 6,
+          "drop_cm": 3.83
+        },
+        {
+          "player": "Ivo Larsen",
+          "week": 8,
+          "drop_cm": 3.99
+        },
+        {
+          "player": "Amara Castillo",
+          "week": 9,
+          "drop_cm": 3.18
+        },
+        {
+          "player": "Amara Larsen",
+          "week": 9,
+          "drop_cm": 3.35
+        },
+        {
+          "player": "Amara Okafor",
+          "week": 9,
+          "drop_cm": 3.13
+        },
+        {
+          "player": "Ines Oduya",
+          "week": 10,
+          "drop_cm": 3.02
+        },
+        {
+          "player": "Pia Tanaka",
+          "week": 10,
+          "drop_cm": 2.97
+        },
+        {
+          "player": "Zane Zahra",
+          "week": 10,
+          "drop_cm": 3.42
+        },
+        {
+          "player": "Amara Okafor",
+          "week": 11,
+          "drop_cm": 4.27
+        },
+        {
+          "player": "Amara Larsen",
+          "week": 12,
+          "drop_cm": 3.12
+        },
+        {
+          "player": "Esme Yilmaz",
+          "week": 13,
+          "drop_cm": 4.17
+        },
+        {
+          "player": "Ines Oduya",
+          "week": 14,
+          "drop_cm": 3.09
+        },
+        {
+          "player": "Jamal Okafor",
+          "week": 14,
+          "drop_cm": 3.63
+        }
+      ],
+      "flags_per_week_comparison_k": {
+        "6": 1,
+        "8": 1,
+        "9": 3,
+        "10": 3,
+        "11": 1,
+        "12": 1,
+        "13": 1,
+        "14": 2
+      },
+      "decoy_flags_in_other_weeks": [
+        {
+          "player": "Zane Zahra",
+          "week": 10,
+          "drop_cm": 3.42
         }
       ],
       "two_trials_only": {

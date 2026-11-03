@@ -114,6 +114,18 @@ class _SquadBase(unittest.TestCase):
         flags = {(self.name[r["athlete"]], r["day"], r["drop"]) for r in self.out["results"] if r["status"] == "FLAG"}
         self.assertEqual(flags, {(f["player"], f["week"], f["drop_cm"]) for f in self.expected["season_flags"]})
 
+    def test_comparison_k_flags_and_only_the_big_planted_drop_in_the_chosen_week(self):
+        s = dict(self.settings) | {"k": self.expected["comparison_k"], "output_folder": os.path.join(self.tmp, "cmj_k2")}
+        out = cmj_flags.run(s)
+        flags = {(self.name[r["athlete"]], r["day"], r["drop"]) for r in out["results"] if r["status"] == "FLAG"}
+        self.assertEqual(flags, {(f["player"], f["week"], f["drop_cm"]) for f in self.expected["season_flags_comparison_k"]})
+        wk = self.expected["chosen_week"]
+        self.assertEqual({n for n, d, _ in flags if d == wk}, {self.expected["flagged_in_chosen_week"][0]})
+
+    def test_flags_per_week_add_up(self):
+        self.assertEqual(sum(self.expected["flags_per_week"].values()), len(self.expected["season_flags"]))
+        self.assertEqual(self.expected["flags_per_week"][str(self.expected["chosen_week"])], 2)
+
     def test_decoy_is_the_only_other_athlete_past_the_swc_in_the_chosen_week(self):
         wk, swc = self.expected["chosen_week"], self.out["squad"]["swc"]
         past = {self.name[r["athlete"]] for r in self.out["results"]
@@ -216,6 +228,7 @@ class PerTrialTests(_SquadBase):
         self.assertIn(f"SWC = **{sq['swc']:.2f} cm**", readme)
         self.assertIn(f"k x TE = **{sq['k_te']:.2f} cm**", readme)
         self.assertIn(f"**{len(self.expected['season_flags'])} flags**", readme)
+        self.assertIn(f"**{len(self.expected['season_flags_comparison_k'])} flags at k = 2.0**", readme)
         for name in self.expected["flagged_in_chosen_week"] + [self.expected["decoy_not_flagged"]]:
             r = by[name]
             self.assertIn(f"| {name} | {r['baseline']:.2f} | {r['test_day_value']:.2f} | {r['drop']:.2f} |", readme)

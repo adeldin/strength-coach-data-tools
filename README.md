@@ -215,7 +215,7 @@ SWC and k x TE, so the effective threshold is 2.18 cm.
 
 | Athlete | Baseline (cm) | Week 8 (cm) | Drop (cm) | Past the SWC? | Past k x TE? | Result |
 |---|---|---|---|---|---|---|
-| Ivo Larsen | 28.56 | 25.57 | 2.99 | yes | yes | **flagged** |
+| Ivo Larsen | 28.56 | 24.57 | 3.99 | yes | yes | **flagged** |
 | Sven Quiroga | 45.35 | 42.77 | 2.58 | yes | yes | **flagged** |
 | Zane Zahra | 41.42 | 39.90 | 1.52 | yes | no | not flagged |
 | Dario Mbeki | none | 38.33 | none | | | not enough data |
@@ -230,9 +230,13 @@ made-up jumps vary by about 4% from day to day, and at k = 1.5 some of that vari
 Larsen's week-7 flag is one of them.
 
 So some flags at this threshold will be noise, and a flag is a prompt to check in with the athlete, not a decision.
-Raising `k` means fewer flags but more real drops missed. Every flag in the season is listed in
-`expected_output/expected_answers.md`. The ForceDecks file gives slightly different numbers (28 flags) because it
-stores one rounded value per test.
+Zane Zahra escapes in week 8 only: the same athlete flags in week 10 (a 3.42 cm drop) from ordinary noise.
+
+**Changing `k` is a trade-off.** At k = 2.0, k x TE rises to 2.90 cm and the season falls to **13 flags at k = 2.0**.
+Fewer false alarms, but in week 8 only Ivo Larsen flags: Sven Quiroga's planted 2.58 cm drop is now missed. The
+default stays at 1.5. Every flag at both values, with counts per week, is listed in
+`expected_output/expected_answers.md`. The ForceDecks file gives slightly different numbers (28 and 12 flags)
+because it stores one rounded value per test.
 
 ## 6. Running the tests yourself
 

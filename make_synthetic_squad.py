@@ -58,6 +58,7 @@ IN = 2.54   # cm per inch
 DAY_TO_DAY_CV = 0.04     # day-to-day variation of a test-day value, as a share of the player's mean
 TRIAL_NOISE_CM = 0.8     # SD of one jump around that day's true height
 DECOY_MARGIN_CM = 0.3    # the decoy's drop stays at least this far from both the SWC and k x TE
+COMPARISON_K = 2.0       # the expected answers also list the flags at this k, for comparison only
 
 FIRST = ["Amara", "Bence", "Carla", "Dario", "Elin", "Farid", "Greta", "Hana", "Ivo", "Jamal", "Kaia", "Luca",
          "Mira", "Nadia", "Oskar", "Pia", "Quentin", "Rosa", "Sven", "Tomas", "Uma", "Vera", "Wim", "Yara",
@@ -322,7 +323,7 @@ def forcedecks_rows(rng, players, start, vals, plants):
     return rows
 
 
-def season_flags(data):
+def season_flags(data, k):
     """Every flag in {name: {week: [values]}}, worked out here with plain arithmetic instead of cmj_flags, so the
     tests compare the script against an independent calculation of the method."""
     days = {n: [(w, statistics.fmean(d[w])) for w in sorted(d)] for n, d in data.items() if len(d) >= BASELINE_DAYS}
@@ -334,7 +335,7 @@ def season_flags(data):
     for n, d in days.items():
         for w, v in d[BASELINE_DAYS:]:
             drop = baseline[n] - v
-            if drop > swc and drop > METHOD["k"] * te:
+            if drop > swc and drop > k * te:
                 flags.append({"player": n, "week": w, "drop_cm": round(drop, 2)})
     return sorted(flags, key=lambda f: (f["week"], f["player"]))
 
@@ -358,8 +359,44 @@ def forcedecks_after_exclusions(vals, plants):
 
 # ------------------------------------------------------------------ main
 
+def flags_per_week(flags):
+    weeks = sorted({f["week"] for f in flags})
+    return {str(w): sum(f["week"] == w for f in flags) for w in weeks}
+
+
+def flag_answers(data, decoy):
+    """Every flag at the default k, and at k = 2.0 for comparison."""
+    flags = season_flags(data, METHOD["k"])
+    flags_k2 = season_flags(data, COMPARISON_K)
+    return {"season_flags": flags, "flags_per_week": flags_per_week(flags),
+            "comparison_k": COMPARISON_K, "season_flags_comparison_k": flags_k2,
+            "flags_per_week_comparison_k": flags_per_week(flags_k2),
+            "decoy_flags_in_other_weeks": [f for f in flags if f["player"] == decoy]}
+
+
 def flag_list(flags):
     return "; ".join(f"week {f['week']} {f['player']} {f['drop_cm']} cm" for f in flags)
+
+
+def week_counts(per_week):
+    return ", ".join(f"week {w}: {n}" for w, n in per_week.items())
+
+
+def flag_lines(a):
+    """The season-wide lines of the expected answers for one force plate file."""
+    k1, k2 = a["season_flags"], a["season_flags_comparison_k"]
+    first, second = a["flagged_in_chosen_week"]
+    wk = a["chosen_week"]
+    in_week_k2 = [f["player"] for f in k2 if f["week"] == wk]
+    assert in_week_k2 == [first], in_week_k2
+    other = "; ".join(f"week {f['week']}, {f['drop_cm']} cm" for f in a["decoy_flags_in_other_weeks"])
+    return [f"- At k = 1.5 (the default): both planted athletes flag in week {wk}. At k = {a['comparison_k']} (comparison only): only {first} flags in week {wk}; "
+            f"{second}'s drop is short of k x TE.",
+            f"- The decoy escapes in week {wk} only. At k = 1.5 it flags from ordinary noise in: {other}.",
+            f"- Season total at k = 1.5: {len(k1)} flags. Per week: {week_counts(a['flags_per_week'])}",
+            f"- Season total at k = {a['comparison_k']}: {len(k2)} flags. Per week: {week_counts(a['flags_per_week_comparison_k'])}",
+            f"- Every flag at k = 1.5: " + flag_list(k1),
+            f"- Every flag at k = {a['comparison_k']}: " + flag_list(k2)]
 
 
 def main(out_dir=None, expected_dir=None):
@@ -385,7 +422,7 @@ def main(out_dir=None, expected_dir=None):
         "conflict": outfield[0]["name"], "variant_full": okafor["name"], "variant_short": "J. Okafor",
         "unique_gk": gk["name"], "notes_player": outfield[1]["name"], "fake_coach": "Priya Raman",
         "ambiguous_date": "09/10/2024",
-        "flagged": [outfield[2]["name"], outfield[3]["name"]], "flag_drops": [3.0, 2.6],
+        "flagged": [outfield[2]["name"], outfield[3]["name"]], "flag_drops": [4.0, 2.6],   # 4.0 flags at k = 1.5 and k = 2.0; 2.6 flags at k = 1.5 only
         "decoy": outfield[4]["name"], "not_enough": outfield[5]["name"],
         "two_trials": outfield[6]["name"], "duplicated_day": outfield[7]["name"], "inches": low_jumper["name"],
         "asym_unreadable": outfield[10]["name"],
@@ -433,7 +470,7 @@ def main(out_dir=None, expected_dir=None):
             "cmj_forcedecks": common | {
                 "file": "cmj_season1.csv", "layout": "VALD ForceDecks, one row per test, jump height in inches",
                 "planted_drops_cm": plants["flag_drops_forcedecks"], "decoy_drop_cm": plants["decoy_drop_forcedecks"],
-                "season_flags": season_flags(forcedecks_after_exclusions(fd1, plants)),
+                **flag_answers(forcedecks_after_exclusions(fd1, plants), plants["decoy"]),
                 "reps_2": {"player": plants["two_trials"], "week": 6},
                 "cm_typed_into_inches_column": {"player": plants["inches"], "week": 9},
                 "unreadable_asymmetry_value": {"player": plants["asym_unreadable"], "week": 5, "column": "Concentric Impulse % (Asym) (%)"},
@@ -442,7 +479,7 @@ def main(out_dir=None, expected_dir=None):
             "cmj_trials": common | {
                 "file": "cmj_trials_season1.csv", "layout": "example per-trial layout, one row per jump, cm",
                 "planted_drops_cm": plants["flag_drops"], "decoy_drop_cm": plants["decoy_drop"],
-                "season_flags": season_flags(trials_after_exclusions(jumps1, plants)),
+                **flag_answers(trials_after_exclusions(jumps1, plants), plants["decoy"]),
                 "two_trials_only": {"player": plants["two_trials"], "week": 6},
                 "value_in_inches": {"player": plants["inches"], "week": 9, "trial": 2},
                 "thresholds_at_generation_cm": plants["thresholds_trials"],
@@ -480,7 +517,7 @@ def main(out_dir=None, expected_dir=None):
           f"- Value in inches: {tr['value_in_inches']['player']}, week 9, trial 2 (excluded; day then has 2 trials)",
           f"- Thresholds when the data were generated: TE {tr['thresholds_at_generation_cm']['te']} cm, "
           f"SWC {tr['thresholds_at_generation_cm']['swc']} cm, k x TE {tr['thresholds_at_generation_cm']['k_te']} cm",
-          f"- Every flag in the season ({len(tr['season_flags'])}): " + flag_list(tr["season_flags"]),
+          *flag_lines(tr),
           "", "## cmj_flags.py on cmj_season1.csv (ForceDecks layout, per test, inches, the second option) after `deidentify.py force_plate`",
           f"- Chosen week: {fdk['chosen_week']}; flagged: {fdk['flagged_in_chosen_week'][0]} ({fdk['planted_drops_cm'][0]} cm), "
           f"{fdk['flagged_in_chosen_week'][1]} ({fdk['planted_drops_cm'][1]} cm)",
@@ -492,7 +529,7 @@ def main(out_dir=None, expected_dir=None):
           f"- Unreadable asymmetry value: {fdk['unreadable_asymmetry_value']['player']}, week 5 (deidentify.py warning)",
           f"- Thresholds when the data were generated: TE {fdk['thresholds_at_generation_cm']['te']} cm, "
           f"SWC {fdk['thresholds_at_generation_cm']['swc']} cm, k x TE {fdk['thresholds_at_generation_cm']['k_te']} cm",
-          f"- Every flag in the season ({len(fdk['season_flags'])}): " + flag_list(fdk["season_flags"]),
+          *flag_lines(fdk),
           "", "## deidentify.py on season 1",
           f"- Conflicting heights: {d['conflicting_heights']['player']} ({d['conflicting_heights']['heights_cm'][0]} and "
           f"{d['conflicting_heights']['heights_cm'][1]} cm) in gps_season1.csv",
