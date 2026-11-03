@@ -1,5 +1,7 @@
 # strength-coach-data-tools
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23930666.svg)](https://doi.org/10.5281/zenodo.23930666)
+
 Two small, tested Python scripts for strength and conditioning coaches who work with athlete
 monitoring exports (GPS, force plate, wellness) and do not have a data scientist on staff.
 
@@ -459,7 +461,10 @@ Python 3.10, 3.11 and 3.12 on every change.
 
 Article citation and link: *to be added on publication.*
 
-Software: see `CITATION.cff`.
+Software: see `CITATION.cff`. Each release is archived on Zenodo.
+
+- This version (v1.0.1): <https://doi.org/10.5281/zenodo.23930666>
+- All versions (concept DOI, always resolves to the latest): <https://doi.org/10.5281/zenodo.23930665>
 
 ## Licence
 

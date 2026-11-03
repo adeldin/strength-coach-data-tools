@@ -4,6 +4,14 @@ title: "strength-coach-data-tools: de-identification and jump monitoring scripts
 version: 1.0.1
 license: MIT
 date-released: 2026-11-03
+doi: 10.5281/zenodo.23930666
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.23930666
+    description: "This version (v1.0.1)"
+  - type: doi
+    value: 10.5281/zenodo.23930665
+    description: "All versions (concept DOI)"
 authors:
   - family-names: Deldin
     given-names: Anthony
