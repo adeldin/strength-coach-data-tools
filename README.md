@@ -39,7 +39,7 @@ office. It makes **no network connections**: both scripts use only Python's own 
 test fails if a network module is ever added.
 
 **Independent review:** ChatGPT independently reviewed versions 0.3.0 and 0.4.0, and versions 0.4.0 and 0.5.0 fixed the findings. Version
-1.0.0 adds documentation, a retry for locked files, a test fix and the licence. Version 1.0.0 itself has not had an independent review.
+1.0.0 adds documentation, a retry for locked files, a test fix and the licence. Version 1.0.0 itself has not had an independent review. Version 1.0.1 is identical to 1.0.0 except for the version metadata; it exists so the release could be archived with a DOI.
 
 ## The settings to change
 

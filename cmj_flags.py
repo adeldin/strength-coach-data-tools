@@ -32,7 +32,7 @@ Needs Python 3.10 or newer. Standard library only. No network calls. Never chang
 replaces an existing output unless you add --overwrite.
 """
 
-SCRIPT_VERSION = "1.0.0"
+SCRIPT_VERSION = "1.0.1"
 
 # =====================================================================================================
 # SETTINGS  -  each setting says "CHANGE THIS for your own data" or "LEAVE AS IS for your first runs".

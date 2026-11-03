@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use these scripts, please cite them as below."
 title: "strength-coach-data-tools: de-identification and jump monitoring scripts for strength and conditioning coaches"
-version: 1.0.0
+version: 1.0.1
 license: MIT
 date-released: 2026-11-03
 authors:
