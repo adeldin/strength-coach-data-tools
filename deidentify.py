@@ -100,14 +100,20 @@ SETTINGS = {
             "asymmetry_columns": [],
         },
         # REAL layout: a VALD ForceDecks CMJ export (one row per test, with a Reps column). Jump height
-        # is exported in inches; the script converts it to cm and renames the heading.
+        # is exported in inches; the script converts it to cm and renames the heading. Every metric column
+        # is kept; ExternalId, Tags and Time are always dropped.
         "force_plate": {
             "input_file": "synthetic_data/cmj_season1.csv",
             "athlete_id_column": "Name",
-            "keep_columns": ["Name", "Date", "Test Type", "BW [KG]", "Reps", "Additional Load [lb]",
-                             "Jump Height (Imp-Mom) in Inches [in]", "RSI-modified [m/s]",
-                             "Peak Power / BM [W/kg]", "Countermovement Depth [cm]",
-                             "Concentric Impulse % (Asym) (%)", "Peak Landing Force % (Asym) (%)"],
+            "keep_columns": ["Name", "Test Type", "Date", "BW [KG]", "Reps", "Additional Load [lb]",
+                             "Jump Height (Imp-Mom) in Inches [in]", "RSI-modified [m/s]", "Peak Landing Force [N]",
+                             "Peak Power / BM [W/kg]", "Concentric RFD [N/s] (L)", "Concentric Peak Force [N] (L)",
+                             "Concentric Peak Force [N] (R)", "Peak Landing Force [N] (L)", "Peak Landing Force [N] (R)",
+                             "Concentric Duration [ms]", "Concentric Impulse [N s]", "Concentric Mean Force [N]",
+                             "Countermovement Depth [cm]", "Contraction Time:Eccentric Duration [%]",
+                             "Eccentric Duration [ms]", "Flight Time:Contraction Time",
+                             "Concentric Impulse % (Asym) (%)", "Peak Landing Force % (Asym) (%)",
+                             "Eccentric Deceleration RFD [N/s]", "Eccentric Deceleration Mean Force [N]"],
             "date_columns": ["Date"],
             "date_format": "%m/%d/%Y",
             "position_column": "",

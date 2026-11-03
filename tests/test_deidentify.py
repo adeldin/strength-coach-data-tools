@@ -125,6 +125,43 @@ class DeidentifyTests(unittest.TestCase):
         r2 = self.run_profile("wellness")
         self.assertIn("Notes", r2["name_shaped"])
 
+    # ---- the ForceDecks file: the keep-list is the whole header row minus three columns that never leave
+    def test_forcedecks_keep_list_matches_header_and_admin_columns_never_appear(self):
+        always_dropped = {"ExternalId", "Tags", "Time"}
+        src = self.settings["profiles"]["force_plate"]["input_file"]
+        with open(src, newline="", encoding="utf-8") as f:
+            header = [h.strip() for h in next(csv.reader(f))]
+        keep = set(self.settings["profiles"]["force_plate"]["keep_columns"])
+        self.assertEqual(set(header) - always_dropped, keep, "the keep-list must be the ForceDecks header row minus ExternalId, Tags and Time")
+        self.assertTrue(always_dropped.isdisjoint(keep))
+        r = self.run_profile("force_plate")
+        heads = r["output_headers"]
+        for col in always_dropped:
+            self.assertNotIn(col, heads)
+            self.assertFalse(any(col == h.split(" side")[0] for h in heads))
+        # "Time" is also part of two kept headings (Contraction Time:..., Flight Time:...), so the value check
+        # looks for the shape of the dropped Time column's entries (a clock time) and for the other two names.
+        import re
+        clock = re.compile(r"\b\d{1,2}:\d{2}\s?[AP]M\b")
+        with open(r["output_file"], encoding="utf-8") as f:
+            text = f.read()
+        self.assertNotIn("ExternalId", text)
+        self.assertNotIn("Tags", text)
+        self.assertIsNone(clock.search(text), "a time-of-day value from the dropped Time column survived in the coded file")
+        dropped_line = next(line for line in r["report"] if line.strip().startswith("dropped"))
+        for col in always_dropped:
+            self.assertIn(col, dropped_line)
+        # the jump script's outputs must not carry them either
+        import cmj_flags
+        s = dict(cmj_flags.SETTINGS) | {"input_file": r["output_file"], "output_folder": os.path.join(self.tmp, "cmj")}
+        out = cmj_flags.run(s)
+        for path in (out["results_file"], out["report_file"]):
+            with open(path, encoding="utf-8") as f:
+                body = f.read()
+            self.assertNotIn("ExternalId", body)
+            self.assertNotIn("Tags", body)
+            self.assertIsNone(clock.search(body))
+
     # ---- the ForceDecks file: headings, units, asymmetry
     def test_forcedecks_headings_units_and_asymmetry(self):
         r = self.run_profile("force_plate")
