@@ -238,7 +238,7 @@ def build(path=OUTPUT):
     sq["A1"] = "Squad typical error (TE) and smallest worthwhile change (SWC)"
     sq["A1"].font = title
     sq["A2"] = ("All made-up athletes. Every athlete with a full 4-day baseline is below. Green cells are live formulas, grey cells are what "
-                "cmj_flags.py reports, and the Match column should say OK.")
+                "cmj_flags.py reports, and the Match column should say OK. If Excel shows small green triangles on formula cells, they are harmless: Excel is noting that neighbouring formulas differ, which is expected here.")
     headings(sq, 4, ["Step", "Formula", "Script says", "Match", "What it does"])
     te_rows = {"count": 5, "sd": 6, "te": 7, "between": 8, "mult": 9, "swc": 10, "k": 11, "kte": 12}
     diffs = f"S{first_row}:U{last_row}"
@@ -278,6 +278,10 @@ def build(path=OUTPUT):
         for i, (later, earlier) in enumerate((("O", "N"), ("P", "O"), ("Q", "P"))):
             c = sq.cell(row=row, column=19 + i, value=f"={later}{row}-{earlier}{row}")
             c.fill, c.number_format = live_fill, "0.00"
+    # Excel marks a formula that differs from its neighbours, or that omits adjacent cells, with a green triangle.
+    # Every formula here is intentional, so after saving, the workbook is told to skip those two checks on the
+    # formula ranges (openpyxl 3.1 does not write <ignoredErrors> itself; see add_ignored_errors below).
+    ignored_ranges = [f"N{first_row}:{_column_letters(21)}{first_row + len(full) - 1}", "B5:B12"]
     sq.column_dimensions["A"].width = 32
     for col in range(2, 22):
         sq.column_dimensions[_column_letters(col)].width = 9.5
@@ -345,8 +349,35 @@ def build(path=OUTPUT):
         ws.column_dimensions[col].width = 12
     ws.column_dimensions["H"].width = 48
     wb.save(path)
+    add_ignored_errors(path, wb.sheetnames.index(SQUAD_SHEET) + 1, ignored_ranges)
     store_answers(path)
     return path
+
+
+def add_ignored_errors(path, sheet_number, ranges):
+    """Tell Excel not to flag 'inconsistent formula' or 'formula omits adjacent cells' on these ranges of one sheet.
+    openpyxl 3.1 reads this setting but does not write it, so the sheet's XML is edited after saving. The element goes
+    where the file format expects it: before any drawing or table parts, otherwise just before the sheet closes."""
+    import re
+    import shutil
+    import tempfile
+    import zipfile
+    member = f"xl/worksheets/sheet{sheet_number}.xml"
+    block = "<ignoredErrors>" + "".join(f'<ignoredError sqref="{r}" formula="1" formulaRange="1"/>' for r in ranges) + "</ignoredErrors>"
+    fd, tmp = tempfile.mkstemp(suffix=".xlsx", dir=os.path.dirname(path) or ".")
+    os.close(fd)
+    with zipfile.ZipFile(path) as src, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as dst:
+        for item in src.infolist():
+            data = src.read(item.filename)
+            if item.filename == member:
+                xml = data.decode("utf-8")
+                if "<ignoredErrors>" not in xml:
+                    m = re.search(r"<(drawing|legacyDrawing|legacyDrawingHF|picture|oleObjects|controls|webPublishItems|tableParts|extLst)", xml)
+                    cut = m.start() if m else xml.rindex("</worksheet>")
+                    xml = xml[:cut] + block + xml[cut:]
+                data = xml.encode("utf-8")
+            dst.writestr(item, data)
+    shutil.move(tmp, path)
 
 
 if __name__ == "__main__":
