@@ -399,6 +399,7 @@ Python 3.10, 3.11 and 3.12 on every change.
 | `expected_output/` | what the scripts should find on the synthetic squad |
 | `tests/` | the automated tests |
 | `CITATION.cff` | how to cite |
+| `LICENSE` | the MIT licence |
 
 ## Citation
 
@@ -408,4 +409,4 @@ Software: see `CITATION.cff`.
 
 ## Licence
 
-To be added. Until a licence file is present, all rights are reserved.
+MIT. See `LICENSE`.

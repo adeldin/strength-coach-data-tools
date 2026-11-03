@@ -552,11 +552,16 @@ class Fix12TypicalErrorWording(Base):
             self.assertNotIn("TE is inflated", text)
 
 
-class Version(unittest.TestCase):
-    def test_version_is_0_5_0_everywhere(self):
-        self.assertEqual(deidentify.SCRIPT_VERSION, "0.5.0")
-        self.assertEqual(cmj_flags.SCRIPT_VERSION, "0.5.0")
-        self.assertIn("version: 0.5.0", read_text(os.path.join(ROOT, "CITATION.cff")))
+class Release(unittest.TestCase):
+    def test_version_is_1_0_0_everywhere(self):
+        self.assertEqual(deidentify.SCRIPT_VERSION, "1.0.0")
+        self.assertEqual(cmj_flags.SCRIPT_VERSION, "1.0.0")
+        self.assertIn("version: 1.0.0", read_text(os.path.join(ROOT, "CITATION.cff")))
+
+    def test_licence_is_mit_everywhere(self):
+        self.assertIn("MIT License\n\nCopyright (c) 2026 Anthony Deldin", read_text(os.path.join(ROOT, "LICENSE")))
+        self.assertIn("license: MIT", read_text(os.path.join(ROOT, "CITATION.cff")))
+        self.assertIn("MIT. See `LICENSE`.", read_text(README))
 
 
 class SyntheticProfilesStillClean(DeidBase):
