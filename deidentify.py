@@ -8,7 +8,8 @@ What it does, in order:
   3. Reads the unit in each heading's brackets, converts inches to cm and pounds to kg, and renames
      the heading to match.
   4. Converts dates into a training week number, counted from your season start date, and a session
-     number within that week. Text columns are dropped unless you list them.
+     number within that week. Text columns are dropped unless you list them, and a category or event
+     column keeps only the values you permit.
   5. Replaces body mass and height with bands (for example "70-75 kg"), positions with groups, and
      splits asymmetry values like "6.3 L" into a number and a side.
   6. Checks whether any athlete, or any row, could still be picked out, and says so in plain English.
@@ -31,7 +32,7 @@ Needs Python 3.10 or newer. Uses nothing outside Python's own standard library. 
 Never changes or overwrites your input file, and never replaces an existing output unless you add --overwrite.
 """
 
-SCRIPT_VERSION = "0.4.0"
+SCRIPT_VERSION = "0.5.0"
 
 # =====================================================================================================
 # SETTINGS  -  edit these. Everything a coach needs to change is in this block.
@@ -60,11 +61,8 @@ SETTINGS = {
     # One athlete recorded with two heights further apart than this is reported as a conflict.
     "height_tolerance_cm": 3,
 
-    # Values in a category column longer than this are left blank: a long value is probably a note, not a category.
-    "category_max_length": 40,
-
-    # Positions as they appear in your export, and the broader group each becomes. Positions that
-    # are not listed here are kept as they are and reported. Edit freely.
+    # Positions as they appear in your export, and the broader group each becomes. A position that
+    # is not listed here is left blank, counted, and named only in the private report. Edit freely.
     "position_groups": {
         "GK": "Goalkeeper",
         "CB": "Defender", "LB": "Defender", "RB": "Defender", "DF": "Defender",
@@ -86,6 +84,13 @@ SETTINGS = {
     # blank and counted, and a column of nothing but text is dropped. Other types you can give: "category" (a short
     # label, like Training or Match), "date", "id". Free text is dropped unless you list the column under
     # "allowed_text_columns", which adds a warning, because this script cannot find every name in free text.
+    #
+    # Every category, class year and event column needs its permitted values listed under "allowed_values". The script
+    # stops if the list is missing. Any other value is left blank, counted, and named only in the private report,
+    # because event fields especially can hold identifying notes ("hamstring, saw Dr Lee").
+    #
+    # "session_column" is optional: a real session identifier, like AM and PM, for days with two tests on one date.
+    # Leave it out of keep_columns; it is only used to number the sessions.
     "profiles": {
         # EXAMPLE layout in the style of a GPS system export. Replace with your own headings.
         "gps": {
@@ -99,7 +104,10 @@ SETTINGS = {
             # How dates are written in the export: "%m/%d/%Y" is 08/05/2024, "%d/%m/%Y" is 05/08/2024,
             # "%Y-%m-%d" is 2024-08-05. Required: the script stops if it is blank.
             "date_format": "%m/%d/%Y",
+            "session_column": "",
             "column_types": {"Session Type": "category"},
+            "allowed_values": {"Session Type": ["Training", "Match"],
+                               "Class Year": ["Freshman", "Sophomore", "Junior", "Senior"]},
             "allowed_text_columns": [],
             "position_column": "Position",
             "class_year_column": "Class Year",
@@ -128,7 +136,9 @@ SETTINGS = {
                              "Eccentric Deceleration RFD [N/s]", "Eccentric Deceleration Mean Force [N]"],
             "date_columns": ["Date"],
             "date_format": "%m/%d/%Y",
+            "session_column": "",
             "column_types": {"Test Type": "category"},
+            "allowed_values": {"Test Type": ["CMJ"]},
             "allowed_text_columns": [],
             "position_column": "",
             "class_year_column": "",
@@ -145,7 +155,9 @@ SETTINGS = {
                              "Peak Power (W)", "RSI-modified", "Body Mass (kg)"],
             "date_columns": ["Date"],
             "date_format": "%m/%d/%Y",
+            "session_column": "",
             "column_types": {"Test Type": "category"},
+            "allowed_values": {"Test Type": ["CMJ"]},
             "allowed_text_columns": [],
             "position_column": "",
             "class_year_column": "",
@@ -162,7 +174,9 @@ SETTINGS = {
                              "Fatigue (1-5)", "Soreness (1-5)", "Stress (1-5)", "Injury/Illness"],
             "date_columns": ["Date"],
             "date_format": "%m/%d/%Y",
+            "session_column": "",
             "column_types": {},
+            "allowed_values": {"Injury/Illness": ["Injury", "Illness"]},
             "allowed_text_columns": [],
             "position_column": "Position",
             "class_year_column": "",
@@ -212,7 +226,9 @@ KEY_COLUMNS = ("original_id", "code")
 FIX = "WARNING [FIX BEFORE USING RESULTS]"
 NO_SHARE = "WARNING [DO NOT SHARE]"
 INFO = "WARNING [INFORMATION ONLY]"
-GENERATED_KINDS = {"code", "week", "session", "band", "side"}   # the script wrote these itself, so they cannot hold an ID
+GENERATED_KINDS = {"code", "week", "session", "band", "side"}   # the script wrote these cells itself, so they cannot hold an ID
+FORMULA_STARTS = ("=", "+", "-", "@")                           # a spreadsheet can run a text cell that starts with one of these
+SHORT_NUMERIC_ID_DIGITS = 5
 
 
 class StopRun(Exception):
@@ -268,12 +284,30 @@ def fmt_number(value):
     return f"{value:.2f}".rstrip("0").rstrip(".") if value is not None else ""
 
 
-def id_pattern(ids):
-    """Matches any ID of any length as a whole word. An underscore counts as a word break, as in file names."""
-    alternatives = sorted({norm(i) for i in ids if norm(i)}, key=len, reverse=True)
-    if not alternatives:
-        return re.compile(r"(?!)")
-    return re.compile(r"(?<![^\W_])(?:" + "|".join(re.escape(a) for a in alternatives) + r")(?![^\W_])")
+def scan_form(text):
+    """Lower-case, with each run of spaces or punctuation made one space, so 'Okafor,Jamal' and 'okafor_jamal' read alike."""
+    return " ".join(re.sub(r"[\W_]+", " ", str(text).casefold()).split())
+
+
+def name_forms(raw):
+    """An ID and, for a name of two or more words, the usual ways of writing it: Jamal Okafor, Okafor Jamal, J Okafor,
+    Okafor J, JamalOkafor, JOkafor. A surname or first name alone is not included: Power and Long are also ordinary words."""
+    parts = scan_form(raw).split()
+    forms = {" ".join(parts)}
+    if len(parts) >= 2 and all(x.isalpha() for x in parts):
+        first, last = parts[0], parts[-1]
+        forms |= {f"{first} {last}", f"{last} {first}", f"{first[0]} {last}", f"{last} {first[0]}", first + last, first[0] + last}
+    return forms - {""}
+
+
+def id_pattern(ids, with_letters_only=False):
+    """Search this against scan_form(text). IDs and name forms of 4 or more characters match anywhere, even inside a
+    longer word; shorter ones match only as whole words, so the ID 'Bo' is not found in 'both'."""
+    forms = set().union(*(name_forms(i) for i in ids)) if ids else set()
+    if with_letters_only:
+        forms = {x for x in forms if any(c.isalpha() for c in x)}
+    alternatives = [re.escape(x) if len(x) >= 4 else r"(?<!\w)" + re.escape(x) + r"(?!\w)" for x in sorted(forms, key=len, reverse=True)]
+    return re.compile("|".join(alternatives)) if alternatives else re.compile(r"(?!)")
 
 
 # ------------------------------------------------------------------ file safety
@@ -301,8 +335,32 @@ def check_output_path(path, input_file, overwrite):
         raise StopRun(f"Refusing to run: '{path}' is a symbolic link. Remove it or choose a different folder.")
     if same_file(path, input_file):
         raise StopRun(f"Refusing to run: '{path}' is the input file. Choose a different output folder.")
+    if os.path.isdir(path):
+        raise StopRun(f"Refusing to run: '{path}' is a folder, so a file cannot be saved under that name. Nothing was changed. Move or rename the folder.")
     if os.path.lexists(path) and not overwrite:
         raise StopRun(f"'{path}' already exists and was not changed. Move it, choose a different folder, or add --overwrite to replace it.")
+
+
+def check_folder(folder):
+    """The destination folder, or the nearest part of its path that exists, must be a folder this run can write in."""
+    here = os.path.abspath(folder)
+    while not os.path.lexists(here):
+        here = os.path.dirname(here)
+    if not os.path.isdir(here) or not os.access(here, os.W_OK):
+        raise StopRun(f"Refusing to run: nothing can be saved in '{folder}' because '{here}' is not a folder this computer can write to. Nothing was changed.")
+
+
+def check_backup_path(backup, others):
+    """The key backup is replaced on every run that adds an athlete, so it must be its own ordinary file."""
+    if os.path.islink(backup):
+        raise StopRun(f"Refusing to run: the key backup '{backup}' is a symbolic link. Remove it or choose a different key folder.")
+    if os.path.isdir(backup):
+        raise StopRun(f"Refusing to run: the key backup '{backup}' is a folder. Move or rename it.")
+    for other in others:
+        if same_file(backup, other):
+            raise StopRun(f"Refusing to run: the key backup '{backup}' is the same file as '{other}', and would replace it. Rename one of them or choose a different key folder.")
+    if os.path.exists(backup) and os.stat(backup).st_nlink > 1:
+        raise StopRun(f"Refusing to run: the key backup '{backup}' is a hard link to another file. Remove it or choose a different key folder.")
 
 
 def write_temp(path, temps, write):
@@ -316,12 +374,39 @@ def write_temp(path, temps, write):
     return tmp
 
 
-def publish(tmp, path, private=False):
-    """Move a finished, checked temporary file into place in one step."""
-    if os.path.islink(path):
-        raise StopRun(f"Refusing to run: '{path}' is a symbolic link. Remove it or choose a different folder.")
-    os.chmod(tmp, 0o600 if private else 0o644)
-    os.replace(tmp, path)
+def publish_all(moves, temps):
+    """moves: [(temporary file, destination, private?)]. All of them go into place, or the earlier ones are undone and
+    the stop message says exactly what happened. Each move is one step, so no file is ever left half written."""
+    done = []   # (destination, temporary copy of the file it replaced, or None if it is new)
+    try:
+        for tmp, path, private in moves:
+            if os.path.islink(path):
+                raise StopRun(f"'{path}' is a symbolic link")
+            saved = None
+            if os.path.exists(path):
+                handle, saved = tempfile.mkstemp(dir=os.path.dirname(path) or ".", prefix=".tmp_", suffix=".previous")
+                os.close(handle)
+                temps.append(saved)
+                shutil.copy2(path, saved)
+            os.chmod(tmp, 0o600 if private else 0o644)
+            os.replace(tmp, path)
+            done.append((path, saved))
+    except (OSError, StopRun) as e:
+        stuck = []
+        for path, saved in reversed(done):
+            try:
+                if saved:
+                    os.replace(saved, path)
+                else:
+                    os.remove(path)
+            except OSError:
+                stuck.append(path + (f" (its previous version is at {saved})" if saved else " (new file)"))
+                if saved:
+                    temps.remove(saved)     # the coach needs this copy, so the clean-up must not remove it
+        if stuck:
+            raise StopRun(f"Saving failed ({e}). These files changed and could not be put back: {'; '.join(stuck)}. "
+                          f"Every other file is as it was before this run.") from None
+        raise StopRun(f"Saving failed ({e}). Every file is as it was before this run, and {len(done)} file(s) already saved were put back.") from None
 
 
 # ------------------------------------------------------------------ dates
@@ -351,15 +436,23 @@ def week_number(d, season_start):
     return (d - season_start).days // 7 + 1
 
 
-def session_numbers(dates, season_start):
-    """Each date's place among the different dates of its week, across the whole file: 1, 2, ...
-    Everyone tested on the same day shares a session number, and no calendar date is released."""
+def session_sort(label):
+    """The order of session identifiers within one date: numbers by size (2 before 10), then text (AM before PM)."""
+    value = to_float(label)
+    return (0, value, "") if value is not None else (1, 0.0, norm(label))
+
+
+def session_numbers(dates, season_start, labels=None):
+    """Each session's place among the different sessions of its week, across the whole file: 1, 2, ...
+    A session is a date, plus the identifier in session_column if there is one. Everyone in the same session shares
+    a number, and no calendar date is released."""
+    keys = [(d, session_sort(labels[i]) if labels else (0, 0.0, "")) for i, d in enumerate(dates)]
     by_week = defaultdict(set)
-    for d in dates:
-        if d:
-            by_week[week_number(d, season_start)].add(d)
-    order = {w: {d: i for i, d in enumerate(sorted(ds), start=1)} for w, ds in by_week.items()}
-    return [order[week_number(d, season_start)][d] if d else "" for d in dates]
+    for k in keys:
+        if k[0]:
+            by_week[week_number(k[0], season_start)].add(k)
+    order = {w: {k: i for i, k in enumerate(sorted(ks), start=1)} for w, ks in by_week.items()}
+    return [order[week_number(k[0], season_start)][k] if k[0] else "" for k in keys]
 
 
 # ------------------------------------------------------------------ the key
@@ -389,8 +482,9 @@ def load_key(path):
     return key, first_coded
 
 
-def save_key(path, key, first_coded, temps):
-    """Check the new key, keep the previous version as a backup, then move the new one into place."""
+def prepare_key(path, backup, key, first_coded, temps):
+    """Check the new key on disk and copy the previous one for the backup. Returns the moves for publish_all; nothing
+    at the destinations changes here."""
     today = date.today().isoformat()
 
     def write(f):
@@ -402,12 +496,12 @@ def save_key(path, key, first_coded, temps):
     tmp = write_temp(path, temps, write)
     if load_key(tmp)[0] != key:
         raise StopRun("The new key file did not read back correctly, so it was not saved.")
+    moves = []
     if os.path.exists(path):
-        backup = os.path.splitext(path)[0] + "_backup.csv"
-        if os.path.islink(backup):
-            raise StopRun(f"Refusing to run: the key backup '{backup}' is a symbolic link.")
-        shutil.copy2(path, backup)
-    publish(tmp, path, private=True)
+        with open(path, newline="", encoding="utf-8") as f:
+            previous = f.read()
+        moves.append((write_temp(backup, temps, lambda f: f.write(previous)), backup, True))
+    return moves + [(tmp, path, True)]
 
 
 # ------------------------------------------------------------------ checks
@@ -461,7 +555,8 @@ def suggest_coarser(released, trait_names, minimum):
 
 
 def verify_output(path, kinds, ids, code_to_id):
-    """Re-read every physical cell of the finished file, by position. Returns (problems, cells that look like a name)."""
+    """Re-read every physical cell of the finished file, by position.
+    Returns (problems, cells that look like a name, {number column: rows repeating that row's own ID, when only some do})."""
     pattern = id_pattern(ids)
     problems = Counter()
     name_hits = defaultdict(list)
@@ -471,9 +566,9 @@ def verify_output(path, kinds, ids, code_to_id):
         rows = list(reader)
     if len(header) != len(kinds) or len({norm(h) for h in header}) != len(header):
         problems["headings that do not match the expected columns"] += 1
-    for h, kind in zip(header, kinds):
-        if kind not in GENERATED_KINDS and pattern.search(norm(h)):
-            problems["a heading contained an original ID"] += 1
+    for h in header:
+        if pattern.search(scan_form(h)):
+            problems["a heading contained an original ID or name"] += 1
     copies, filled = Counter(), Counter()
     for row_num, row in enumerate(rows, start=2):
         if len(row) != len(header):
@@ -489,16 +584,19 @@ def verify_output(path, kinds, ids, code_to_id):
                 if to_float(cell) is None:
                     problems["text left in a number column"] += 1
                 filled[i] += 1
-                copies[i] += norm(cell) == norm(original)
+                copies[i] += to_float(original) is not None and to_float(cell) == to_float(original)
             else:
-                if pattern.search(norm(cell)):
+                if pattern.search(scan_form(cell)):
                     problems["cells containing an original ID"] += 1
                 if NAME_SHAPED.search(cell):
                     name_hits[header[i]].append(row_num)
+    partial_copies = {}
     for i, n in filled.items():     # a number column that repeats each row's own numeric ID is a copy of the ID
         if n and copies[i] == n:
             problems[f"column '{header[i]}' repeats the athlete ID"] += 1
-    return problems, name_hits
+        elif copies[i]:             # in only some rows it may be chance, so a person has to look
+            partial_copies[header[i]] = copies[i]
+    return problems, name_hits, partial_copies
 
 
 # ------------------------------------------------------------------ reading
@@ -559,9 +657,10 @@ def _run(settings, profile_name, input_override, output_override, key_override, 
     output_file = os.path.join(output_folder, "coded_" + os.path.basename(input_file))
     report_file = os.path.join(output_folder, f"deidentify_report_{stem}.txt")
     private_file = os.path.join(key_folder, f"PRIVATE_deidentify_report_{stem}.txt")
+    backup_file = os.path.splitext(key_path)[0] + "_backup.csv"
     minimum = int(settings["minimum_group_size"])
 
-    # ---- safety: never write over an input or an existing file, never put the key with the output
+    # ---- safety, before anything is written: never write over an input or an existing file, never put the key with the output
     if not os.path.exists(input_file):
         raise StopRun(f"Input file not found: {input_file}")
     if same_file(output_folder, os.path.dirname(os.path.abspath(input_file))):
@@ -570,13 +669,27 @@ def _run(settings, profile_name, input_override, output_override, key_override, 
         raise StopRun("Refusing to run: the key folder and the output folder must be separate, and neither may be inside the other.")
     if same_file(key_path, input_file):
         raise StopRun(f"Refusing to run: '{key_path}' is the input file. Choose a different key folder.")
+    if os.path.isdir(key_path):
+        raise StopRun(f"Refusing to run: the key '{key_path}' is a folder. Move or rename it.")
+    for folder in (output_folder, key_folder):
+        check_folder(folder)
     for out in (output_file, report_file, private_file):
         check_output_path(out, input_file, overwrite)
+    check_backup_path(backup_file, [input_file, output_file, report_file, private_file, key_path])
+    for a, b in combinations((output_file, report_file, private_file, key_path), 2):
+        if same_file(a, b):
+            raise StopRun(f"Refusing to run: '{a}' and '{b}' are the same file. Choose different folders.")
 
     headers, rows, trimmed = read_export(input_file)
+    if not rows:
+        raise StopRun(f"No athlete records found in '{os.path.basename(input_file)}': the file has no rows below its headings.")
     id_col = p["athlete_id_column"]
     keep = list(p["keep_columns"])
-    missing = [c for c in keep + [id_col] if c not in headers]
+    session_col = p.get("session_column", "")
+    if session_col and session_col in keep:
+        raise StopRun(f"session_column '{session_col}' is also in keep_columns. Take it out of keep_columns: it is used to number the "
+                      f"sessions, and the output's Session column replaces it.")
+    missing = [c for c in keep + [id_col] + ([session_col] if session_col else []) if c not in headers]
     if missing:
         raise StopRun(f"These columns are in SETTINGS but not in the file: {missing}. Headings must match exactly "
                       f"(spaces at the ends are ignored). The file's headings are: {headers}")
@@ -598,6 +711,12 @@ def _run(settings, profile_name, input_override, output_override, key_override, 
     event_cols = [c for c in p.get("event_columns", []) if c in keep]
     category_cols = {c for c in keep if declared.get(c) == "category"} | {c for c in (pos_col, cls_col) if c} | set(event_cols)
     asym_cols = [c for c in keep if c != id_col and c not in allowed_text and ("(asym)" in c.casefold() or c in p.get("asymmetry_columns", []))]
+    permitted = {k.strip(): {norm(v): str(v).strip() for v in vs} for k, vs in p.get("allowed_values", {}).items()}
+    no_list = sorted(c for c in category_cols if c != pos_col and c not in allowed_text and not permitted.get(c))
+    if no_list:
+        raise StopRun(f"These category or event columns have no list of permitted values: {no_list}. Add each one to allowed_values in SETTINGS, "
+                      f"for example \"allowed_values\": {{\"Session Type\": [\"Training\", \"Match\"]}}. Anything else in the column is then left blank, "
+                      f"because these fields can hold identifying notes.")
 
     # ---- athlete IDs -> codes (the key file is only written once the output has passed its checks)
     aliases = {norm(k): v for k, v in settings.get("id_aliases", {}).items()}
@@ -611,13 +730,15 @@ def _run(settings, profile_name, input_override, output_override, key_override, 
         r = dict(r)
         r[id_col] = aliases.get(norm(raw_id), raw_id)
         kept_rows.append(r)
+    if not kept_rows:
+        raise StopRun(f"No athlete records found in '{os.path.basename(input_file)}': every row has a blank '{id_col}'.")
     original_ids = sorted({r[id_col] for r in kept_rows})
     all_ids = set(original_ids) | set(settings.get("id_aliases", {}))
     pattern = id_pattern(all_ids)
-    if pattern.search(norm(os.path.basename(input_file))):
+    if pattern.search(scan_form(os.path.basename(input_file))):
         raise StopRun("The input file's name contains an athlete ID, and the coded file is named after it. Rename the input file and run again.")
 
-    shown = lambda h: "(a heading that contains an ID; see the private report)" if pattern.search(norm(h)) else h
+    shown = lambda h: "(a heading that contains an ID; see the private report)" if pattern.search(scan_form(h)) else h
     report.append(f"Input: {os.path.basename(input_file)}  ({len(rows)} rows, {len(headers)} columns)")
     if trimmed:
         report.append(f"  {trimmed} heading(s) had spaces at the start or end; those spaces were removed.")
@@ -637,6 +758,10 @@ def _run(settings, profile_name, input_override, output_override, key_override, 
                f"  {len(original_ids)} athletes in this file: {reused} already had a code in the key, "
                f"{len(original_ids) - reused} received a new one.",
                "  The key and the private report are saved in the key folder. Keep them private; never upload them."]
+    short_numeric = sum(1 for i in original_ids if i.isdigit() and len(i) < SHORT_NUMERIC_ID_DIGITS)
+    if short_numeric:
+        report.append(f"  {INFO}: {short_numeric} athlete ID(s) are numbers shorter than {SHORT_NUMERIC_ID_DIGITS} digits, like jersey numbers. A short number is "
+                      f"hard to tell from a real measurement, so a copy of one can get past the checks. Non-numeric or long IDs are safer.")
     if CLOUD_FOLDER.search(os.path.realpath(key_folder)):
         report.append(f"  {NO_SHARE}: the key folder looks like a cloud-synced folder. Move it somewhere that does not sync.")
     variants = likely_name_variants(original_ids)
@@ -650,22 +775,25 @@ def _run(settings, profile_name, input_override, output_override, key_override, 
     conversions = {}
     blanked = {}
     dropped_text = []
-    long_categories = {}
+    not_permitted = {}
     report += ["", "UNITS AND VALUES"]
     for col in keep:
         if col == id_col or col in date_cols or col in asym_cols or col in allowed_text:
             continue
+        if col == pos_col:
+            continue        # position_groups is the permitted list for positions; handled with the traits below
         if col in category_cols:
-            limit = int(settings.get("category_max_length", 40))
-            too_long = 0
+            others = Counter()
             for r in kept_rows:
-                if len(str(r[col]).strip()) > limit:
-                    r[col] = ""
-                    too_long += 1
-            if too_long:
-                long_categories[col] = too_long
-                report.append(f"  {FIX}: {too_long} value(s) in '{shown(col)}' were longer than {limit} characters, which is too long for a "
-                              f"category, and were left blank.")
+                raw = str(r[col]).strip()
+                if raw and norm(raw) not in permitted[col]:
+                    others[raw] += 1
+                r[col] = permitted[col].get(norm(raw), "")
+            if others:
+                not_permitted[col] = sum(others.values())
+                report.append(f"  {FIX}: {not_permitted[col]} value(s) in '{shown(col)}' are not on its allowed_values list and were left blank. "
+                              f"They are listed in the private report: add any safe label to the list, and run again.")
+                private += ["", f"VALUES LEFT BLANK IN '{col}' (not on its allowed_values list)"] + [f"  '{k}' ({n} rows)" for k, n in others.most_common()]
             continue
         u = unit_of(col)
         if col == m_col and u not in MASS_UNITS:
@@ -727,9 +855,10 @@ def _run(settings, profile_name, input_override, output_override, key_override, 
         weeks = [week_number(d, season_start) if d else "" for d in dates]
         early = sum(1 for w in weeks if w != "" and w < 1)
         week_cols[col] = weeks
-        session_cols[col] = session_numbers(dates, season_start)
+        session_cols[col] = session_numbers(dates, season_start, [r[session_col] for r in kept_rows] if session_col else None)
         span = [w for w in weeks if w != ""]
-        report.append(f"  '{shown(col)}' -> 'Week' and 'Session' (week 1 starts {season_start}; sessions are numbered by date within each week); "
+        report.append(f"  '{shown(col)}' -> 'Week' and 'Session' (week 1 starts {season_start}; sessions are numbered by date"
+                      f"{' and ' + repr(shown(session_col)) if session_col else ''} within each week); "
                       f"{len(span)} dates converted, weeks {min(span) if span else '-'} to {max(span) if span else '-'}.")
         if early:
             report.append(f"  {INFO}: {early} date(s) fall before season_start_date and have week numbers of 0 or less.")
@@ -752,6 +881,7 @@ def _run(settings, profile_name, input_override, output_override, key_override, 
             raw = str(r[pos_col]).strip()
             if raw and raw not in groups_map and raw not in groups_map.values():
                 unknown_pos[raw] += 1
+                raw = ""
             r[pos_col] = groups_map.get(raw, raw)
         if h_col and h_col in keep:
             v = to_float(r[h_col])
@@ -762,8 +892,9 @@ def _run(settings, profile_name, input_override, output_override, key_override, 
     if pos_col and pos_col in keep:
         report.append(f"  '{shown(pos_col)}' replaced by position groups from SETTINGS.")
         if unknown_pos:
-            report.append(f"  {NO_SHARE}: {len(unknown_pos)} position value(s) are not in position_groups and were kept as written. "
-                          f"They are listed in the private report. Add them to position_groups.")
+            not_permitted[pos_col] = sum(unknown_pos.values())
+            report.append(f"  {FIX}: {not_permitted[pos_col]} position value(s) are not in position_groups and were left blank. "
+                          f"They are listed in the private report. Add any real position to position_groups, and run again.")
             private += ["", "POSITIONS NOT IN position_groups"] + [f"  '{k}' ({n} rows)" for k, n in unknown_pos.most_common()]
     for col, width, unit in ((h_col, settings["height_band_cm"], "cm"), (m_col, settings["body_mass_band_kg"], "kg")):
         if col and col in keep:
@@ -882,6 +1013,20 @@ def _run(settings, profile_name, input_override, output_override, key_override, 
         raise StopRun(f"Two output columns would both be called {repeated}. A second column under one heading can hide values "
                       f"from every check. Drop one, or rename it in the file, and run again.")
 
+    # ---- a text cell a spreadsheet would run as a formula gets an apostrophe in front, so it stays text
+    guarded = Counter()
+    for _, src, kind in out_cols:
+        if kind == "text":
+            for r in kept_rows:
+                value = str(r[src]).strip()
+                if value.startswith(FORMULA_STARTS):
+                    r[src] = "'" + value
+                    guarded[src] += 1
+    if guarded:
+        report += ["", "SPREADSHEET FORMULAS"]
+        report += [f"  {INFO}: {n} value(s) in '{shown(c)}' started with =, +, - or @, which a spreadsheet can run as a formula. "
+                   f"An apostrophe was added in front of each." for c, n in guarded.items()]
+
     def write_coded(f):
         w = csv.writer(f)
         w.writerow([h for h, _, _ in out_cols])
@@ -895,35 +1040,44 @@ def _run(settings, profile_name, input_override, output_override, key_override, 
     # ---- verify: no original ID anywhere in the output, before anything is moved into place
     report += ["", "VERIFICATION"]
     code_to_id = {code: i for i, code in key.items()}
-    problems, name_hits = verify_output(tmp_output, [k for _, _, k in out_cols], all_ids, code_to_id)
+    problems, name_hits, partial_copies = verify_output(tmp_output, [k for _, _, k in out_cols], all_ids, code_to_id)
     if problems:
         details = "; ".join(f"{n} x {what}" for what, n in problems.items())
         raise StopRun(f"VERIFICATION FAILED: {details}. The new output was not saved, and no existing file was changed. "
-                      f"Check the kept columns for one that repeats the athlete's name or ID.")
+                      f"Check the kept columns and headings for one that repeats an athlete's name or ID. A short numeric ID can match a heading "
+                      f"such as 'Fatigue (1-5)': if that is the cause, use longer or non-numeric IDs.")
     report.append(f"  OK: every cell of the output was re-read and none of the {len(original_ids)} original IDs appears in it.")
     if name_hits:
         report.append(f"  {NO_SHARE}: some kept values look like a person's name (two capitalised words, or an initial and "
                       "a surname). Check these cells before sharing; a coach's or physio's name is still a name. Name detection is not comprehensive:")
         for col, rs in name_hits.items():
             report.append(f"      column '{shown(col)}': {len(rs)} cell(s), rows {rs[:10]}{'...' if len(rs) > 10 else ''}")
+    for col, n in partial_copies.items():
+        report.append(f"  {NO_SHARE}: in number column '{shown(col)}', {n} value(s) equal that row's own athlete ID. It may be chance, "
+                      f"because real measurements can coincide, but check the column before sharing.")
     report += ["", f"Coded file: {os.path.basename(output_file)}", f"This report: {os.path.basename(report_file)}", "",
                "Remaining risk must be reviewed by a person. This script reduces re-identification risk; "
                "it does not make data anonymous."]
 
-    # ---- everything passed: the key first, then the files
-    if key_changed or not os.path.exists(key_path):
-        save_key(key_path, key, first_coded, temps)
+    # ---- the shareable report gets the same check as the coded file. An ID made only of digits is left out of this one
+    # scan, because the report is full of counts and dates; the headings and file name it quotes were already checked for those.
+    if id_pattern(all_ids, with_letters_only=True).search(scan_form("\n".join(report))):
+        raise StopRun("The shareable report would contain an athlete's ID or name, so nothing was saved and no existing file was changed. "
+                      "Check the headings and the file name. An ID that is one ordinary word, such as Will or Ward, also matches the report's "
+                      "own wording: if that is the cause, use a fuller or non-word ID.")
+
+    # ---- everything passed. Check all the moves are ready, then make them together
+    key_moves = prepare_key(key_path, backup_file, key, first_coded, temps) if key_changed or not os.path.exists(key_path) else []
     tmp_report = write_temp(report_file, temps, lambda f: f.write("\n".join(report) + "\n"))
     tmp_private = write_temp(private_file, temps, lambda f: f.write("\n".join(private) + "\n"))
-    publish(tmp_output, output_file)
-    publish(tmp_report, report_file)
-    publish(tmp_private, private_file, private=True)
+    publish_all(key_moves + [(tmp_output, output_file, False), (tmp_report, report_file, False), (tmp_private, private_file, True)], temps)
     return {"output_file": output_file, "report_file": report_file, "private_report_file": private_file, "key_path": key_path,
             "report": report, "private_report": private, "checks": checks,
             "conflicts": {key[i]: sorted(map(str, v)) for i, v in conflicts.items()},
             "name_variants": variants, "name_shaped": dict(name_hits), "rows": len(kept_rows),
             "conversions": conversions, "renamed": renamed, "asymmetry_unparsed": {k: v for k, v in asym_bad.items() if v},
-            "blanked": blanked, "dropped_text": dropped_text, "output_headers": [h for h, _, _ in out_cols]}
+            "blanked": blanked, "dropped_text": dropped_text, "not_permitted": not_permitted, "partial_id_copies": partial_copies,
+            "formula_guarded": dict(guarded), "output_headers": [h for h, _, _ in out_cols]}
 
 
 def require_python():

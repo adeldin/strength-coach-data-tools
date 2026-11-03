@@ -94,13 +94,13 @@ class Fix01DuplicateHeadings(DeidBase):
     def test_verification_reads_every_physical_cell(self):
         # the second column under a repeated heading is invisible to a dict reader; here it holds the name
         path = write_csv(os.path.join(self.tmp, "f.csv"), ["Athlete Code", "Note", "Note"], [["ATH-AAAAAA", "fine", "Ann Lee"]])
-        problems, _ = deidentify.verify_output(path, ["code", "text", "text"], {"Ann Lee"}, {"ATH-AAAAAA": "Ann Lee"})
+        problems, _, _ = deidentify.verify_output(path, ["code", "text", "text"], {"Ann Lee"}, {"ATH-AAAAAA": "Ann Lee"})
         self.assertTrue(any("original ID" in p for p in problems))
         self.assertTrue(any("headings" in p for p in problems))
 
     def test_verification_checks_headings_separately(self):
         path = write_csv(os.path.join(self.tmp, "f.csv"), ["Athlete Code", "Ann Lee load"], [["ATH-AAAAAA", "5"]])
-        problems, _ = deidentify.verify_output(path, ["code", "number"], {"Ann Lee"}, {"ATH-AAAAAA": "Ann Lee"})
+        problems, _, _ = deidentify.verify_output(path, ["code", "number"], {"Ann Lee"}, {"ATH-AAAAAA": "Ann Lee"})
         self.assertTrue(any("heading contained" in p for p in problems))
 
 
@@ -276,10 +276,9 @@ class Fix06FreeText(DeidBase):
         self.assertIn("Load", r2["output_headers"])
         self.assertTrue(any("allowed_text_columns" in line and "DO NOT SHARE" in line for line in r2["report"]))
 
-    def test_categories_pass_and_long_ones_are_blanked(self):
-        long_note = "x" * 41
-        self.export(rows=[["Ann Lee", "08/05/2024", "Match"], ["Ben Fox", "08/05/2024", long_note]])
-        r = self.run_it(self.settings(column_types={"Load": "category"}))
+    def test_listed_categories_pass_and_others_are_blanked(self):
+        self.export(rows=[["Ann Lee", "08/05/2024", "Match"], ["Ben Fox", "08/05/2024", "x" * 41]])
+        r = self.run_it(self.settings(column_types={"Load": "category"}, allowed_values={"Load": ["Match"]}))
         self.assertEqual([x["Load"] for x in read_rows(r["output_file"])], ["Match", ""])
 
     def test_nan_and_infinity_are_not_numbers(self):
@@ -586,12 +585,6 @@ class Fix17ReadmeAndLabels(DeidBase):
         src = write_csv(os.path.join(self.in_dir, "c.csv"), *CMJ_FILE)
         out = cmj_flags.run(cmj_settings(src, self.out))
         self.assertTrue(all("[" in m for _, _, m in out["warnings"]))
-
-
-class Version(unittest.TestCase):
-    def test_version_is_0_4_0(self):
-        self.assertEqual(deidentify.SCRIPT_VERSION, "0.4.0")
-        self.assertEqual(cmj_flags.SCRIPT_VERSION, "0.4.0")
 
 
 CMJ_FILE = (["Athlete Code", "Week", "Session", "Trial", "Jump Height (cm)", "Test Type"],

@@ -19,9 +19,9 @@ The method, step by step:
   7. An athlete with fewer than N baseline days is "not enough data", never flagged.
 
 A flag is a prompt to check in with the athlete, not a decision. The TE assumes athletes were stable
-across their baseline days; if they were fatigued, injured or still learning the test, TE is inflated
-and real drops are missed. A steady trend across the baseline days has the opposite effect: it can make TE
-misleadingly small (31, 32, 33, 34 gives TE = 0). Every threshold below is an adjustable choice, not a rule.
+across their baseline days. An unstable baseline can distort TE in either direction: up-and-down days from
+fatigue, injury or learning the test can make it too large, so real drops are missed, and a steady trend can make it
+misleadingly small (31, 32, 33, 34 gives TE = 0), so noise gets flagged. Every threshold below is an adjustable choice, not a rule.
 
 How to run it (from the folder that holds this file):
     python cmj_flags.py
@@ -32,7 +32,7 @@ Needs Python 3.10 or newer. Standard library only. No network calls. Never chang
 replaces an existing output unless you add --overwrite.
 """
 
-SCRIPT_VERSION = "0.4.0"
+SCRIPT_VERSION = "0.5.0"
 
 # =====================================================================================================
 # SETTINGS  -  edit these.
@@ -90,6 +90,7 @@ import json
 import math
 import os
 import re
+import shutil
 import statistics
 import sys
 import tempfile
@@ -143,6 +144,8 @@ def check_output_path(path, input_file, overwrite):
         raise StopRun(f"Refusing to run: '{path}' is a symbolic link. Remove it or choose a different folder.")
     if same_file(path, input_file):
         raise StopRun("Refusing to run: an output path equals the input path.")
+    if os.path.isdir(path):
+        raise StopRun(f"Refusing to run: '{path}' is a folder, so a file cannot be saved under that name. Nothing was changed. Move or rename the folder.")
     if os.path.lexists(path) and not overwrite:
         raise StopRun(f"'{path}' already exists and was not changed. Move it, choose a different folder, or add --overwrite to replace it.")
 
@@ -156,12 +159,39 @@ def write_temp(path, temps, write):
     return tmp
 
 
-def publish(tmp, path):
-    """Move a finished, checked temporary file into place in one step."""
-    if os.path.islink(path):
-        raise StopRun(f"Refusing to run: '{path}' is a symbolic link. Remove it or choose a different folder.")
-    os.chmod(tmp, 0o644)
-    os.replace(tmp, path)
+def publish_all(moves, temps):
+    """moves: [(temporary file, destination)]. All of them go into place, or the earlier ones are undone and the stop
+    message says exactly what happened. Each move is one step, so no file is ever left half written."""
+    done = []   # (destination, temporary copy of the file it replaced, or None if it is new)
+    try:
+        for tmp, path in moves:
+            if os.path.islink(path):
+                raise StopRun(f"'{path}' is a symbolic link")
+            saved = None
+            if os.path.exists(path):
+                handle, saved = tempfile.mkstemp(dir=os.path.dirname(path) or ".", prefix=".tmp_", suffix=".previous")
+                os.close(handle)
+                temps.append(saved)
+                shutil.copy2(path, saved)
+            os.chmod(tmp, 0o644)
+            os.replace(tmp, path)
+            done.append((path, saved))
+    except (OSError, StopRun) as e:
+        stuck = []
+        for path, saved in reversed(done):
+            try:
+                if saved:
+                    os.replace(saved, path)
+                else:
+                    os.remove(path)
+            except OSError:
+                stuck.append(path + (f" (its previous version is at {saved})" if saved else " (new file)"))
+                if saved:
+                    temps.remove(saved)     # the coach needs this copy, so the clean-up must not remove it
+        if stuck:
+            raise StopRun(f"Saving failed ({e}). These files changed and could not be put back: {'; '.join(stuck)}. "
+                          f"Every other file is as it was before this run.") from None
+        raise StopRun(f"Saving failed ({e}). Every file is as it was before this run, and {len(done)} file(s) already saved were put back.") from None
 
 
 def unit_of(header):
@@ -237,6 +267,8 @@ def read_trials(settings):
         raise StopRun(f"The input file '{path}' is not saved as UTF-8. In Excel: File, Save As, CSV UTF-8, then run again.") from None
     except csv.Error as e:
         raise StopRun(f"The input file '{path}' could not be read as a CSV file ({e}).") from None
+    if not rows:
+        raise StopRun(f"No athlete records found in '{os.path.basename(path)}': the file has no rows below its headings.")
     headers = [h.strip() for h in raw_headers]
     seen = defaultdict(list)
     for h in headers:
@@ -494,9 +526,9 @@ def write_outputs(settings, results, squad, warnings, exclusions, counts, info, 
     lines += [f"  {a}  {d}: {FIX} {msg}" for a, d, msg in exclusions] or ["  none"]
     lines += ["", "HOW TO READ THIS",
               "  A flag is a prompt to check in with the athlete, not a decision. Drops only are flagged.",
-              "  TE assumes athletes were stable across their baseline days. If they were not, TE is inflated and",
-              "  real drops will be missed. A steady trend across the baseline days can do the opposite and make TE",
-              "  misleadingly small (31, 32, 33, 34 gives TE = 0). Missing test days stay missing; they are never treated as zero.",
+              "  TE assumes athletes were stable across their baseline days. An unstable baseline can distort TE in either",
+              "  direction: up-and-down days can make it too large, so real drops are missed, and a steady trend can make it",
+              "  misleadingly small (31, 32, 33, 34 gives TE = 0), so noise gets flagged. Missing test days stay missing; they are never treated as zero.",
               "  Every warning says what to do: FIX BEFORE USING RESULTS or INFORMATION ONLY.",
               "  Every threshold is an adjustable choice in SETTINGS, not a rule.",
               "", f"Results: {os.path.basename(results_file)}", f"Report: {os.path.basename(report_file)}"]
@@ -513,8 +545,7 @@ def write_outputs(settings, results, squad, warnings, exclusions, counts, info, 
                 if sum(1 for _ in csv.reader(f)) != len(results) + 1:
                     raise StopRun("The results file did not read back correctly, so it was not saved.")
             tmp_report = write_temp(report_file, temps, lambda f: f.write("\n".join(lines) + "\n"))
-            publish(tmp_results, results_file)
-            publish(tmp_report, report_file)
+            publish_all([(tmp_results, results_file), (tmp_report, report_file)], temps)
         finally:
             for tmp in temps:   # only the temporary files this run created
                 if os.path.exists(tmp):
