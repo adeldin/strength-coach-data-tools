@@ -110,6 +110,10 @@ class _SquadBase(unittest.TestCase):
         for name, drop in zip(self.expected["flagged_in_chosen_week"], self.expected["planted_drops_cm"]):
             self.assertAlmostEqual(drops[name], drop, places=2)
 
+    def test_every_flag_in_the_season_matches_the_independent_calculation(self):
+        flags = {(self.name[r["athlete"]], r["day"], r["drop"]) for r in self.out["results"] if r["status"] == "FLAG"}
+        self.assertEqual(flags, {(f["player"], f["week"], f["drop_cm"]) for f in self.expected["season_flags"]})
+
     def test_decoy_is_the_only_other_athlete_past_the_swc_in_the_chosen_week(self):
         wk, swc = self.expected["chosen_week"], self.out["squad"]["swc"]
         past = {self.name[r["athlete"]] for r in self.out["results"]
@@ -204,6 +208,18 @@ class PerTrialTests(_SquadBase):
         means = [r["baseline"] for r in self.out["results"] if r["status"] == "baseline"]
         self.assertAlmostEqual(self.out["squad"]["te"] / statistics.fmean(means), 0.04, delta=0.005)
 
+    def test_readme_worked_example_matches_the_data(self):
+        with open(os.path.join(ROOT, "README.md"), encoding="utf-8") as f:
+            readme = f.read()
+        sq, by = self.out["squad"], {self.name[r["athlete"]]: r for r in self.out["results"] if r["day"] == self.expected["chosen_week"]}
+        self.assertIn(f"TE = **{sq['te']:.2f} cm**", readme)
+        self.assertIn(f"SWC = **{sq['swc']:.2f} cm**", readme)
+        self.assertIn(f"k x TE = **{sq['k_te']:.2f} cm**", readme)
+        self.assertIn(f"**{len(self.expected['season_flags'])} flags**", readme)
+        for name in self.expected["flagged_in_chosen_week"] + [self.expected["decoy_not_flagged"]]:
+            r = by[name]
+            self.assertIn(f"| {name} | {r['baseline']:.2f} | {r['test_day_value']:.2f} | {r['drop']:.2f} |", readme)
+
     def test_decoy_drop_matches_the_per_test_file(self):
         self.assertEqual(EXP_TR["decoy_drop_cm"], EXP_FD["decoy_drop_cm"])
 
@@ -250,9 +266,8 @@ class RawInchesFileTests(unittest.TestCase):
 
     def test_same_flags_as_the_coded_route(self):
         season_start = cmj_flags.day_key("2024-08-05", "")
-        flags = {r["athlete"] for r in self.out["results"] if r["status"] == "FLAG"
-                 and (r["day"] - season_start).days // 7 + 1 == EXP_FD["chosen_week"]}
-        self.assertEqual(flags, set(EXP_FD["flagged_in_chosen_week"]))
+        flags = {(r["athlete"], (r["day"] - season_start).days // 7 + 1) for r in self.out["results"] if r["status"] == "FLAG"}
+        self.assertEqual(flags, {(f["player"], f["week"]) for f in EXP_FD["season_flags"]})
 
     def test_cm_in_inches_column_note(self):
         msgs = [m for _, _, m in self.out["exclusions"] if "centimetres typed into the in column" in m]

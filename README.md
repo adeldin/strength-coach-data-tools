@@ -87,9 +87,8 @@ Then open `expected_output/expected_answers.md` and compare. You should see, amo
 - in the ForceDecks file: jump height converted from inches to cm, "Additional Load" from lb to kg,
   asymmetry values like `6.3 L` split into a number and a side, and one unreadable asymmetry value warned about.
 
-The made-up jumps vary by about 4% from day to day in every week, so you will also see some flags in other
-weeks. Only week 8 was built by hand. Those other flags show what ordinary day-to-day noise does with these
-settings: a flag is a prompt to check in, not a finding.
+The made-up jumps vary by about 4% from day to day in every week, so you will also see flags in other weeks:
+30 in the season. Only week 8 was built by hand. The worked example in section 5 walks through it.
 
 `cmj_trials_season1.csv` is an example of a per-trial export (one row per jump, in cm), and `cmj_flags.py` reads
 it by default. `cmj_season1.csv` uses the real VALD ForceDecks export layout (one row per test, jump height in
@@ -207,14 +206,42 @@ is 15 or more, so it passes the range check. The script therefore also warns whe
 the day's middle trial by more than 30% (`within_day_warning_fraction`), but that value stays in the
 calculation until you correct the file.
 
+### Worked example: week 8 of the synthetic squad
+
+These numbers come from `cmj_trials_season1.csv` with the default settings. All the athletes are made up.
+
+The squad's thresholds: TE = **1.45 cm**, SWC = **1.07 cm**, k x TE = **2.18 cm**. A drop has to exceed both the
+SWC and k x TE, so the effective threshold is 2.18 cm.
+
+| Athlete | Baseline (cm) | Week 8 (cm) | Drop (cm) | Past the SWC? | Past k x TE? | Result |
+|---|---|---|---|---|---|---|
+| Ivo Larsen | 28.56 | 25.57 | 2.99 | yes | yes | **flagged** |
+| Sven Quiroga | 45.35 | 42.77 | 2.58 | yes | yes | **flagged** |
+| Zane Zahra | 41.42 | 39.90 | 1.52 | yes | no | not flagged |
+| Dario Mbeki | none | 38.33 | none | | | not enough data |
+
+Zane Zahra is the reason the rule needs both thresholds: a 1.52 cm drop is bigger than the smallest worthwhile
+change, but it is within what day-to-day noise can produce in this squad. Dario Mbeki was tested only in weeks 7
+and 8, so there is no baseline to compare against. No other athlete drops past the SWC in week 8.
+
+Across the whole season the script raises **30 flags** on 18 athletes, about 11% of the 269 test days after the
+baseline. Only the week-8 drops of Ivo Larsen and Sven Quiroga were planted. The other 28 are ordinary noise: these
+made-up jumps vary by about 4% from day to day, and at k = 1.5 some of that variation crosses the threshold. Ivo
+Larsen's week-7 flag is one of them.
+
+So some flags at this threshold will be noise, and a flag is a prompt to check in with the athlete, not a decision.
+Raising `k` means fewer flags but more real drops missed. Every flag in the season is listed in
+`expected_output/expected_answers.md`. The ForceDecks file gives slightly different numbers (28 flags) because it
+stores one rounded value per test.
+
 ## 6. Running the tests yourself
 
 ```
 python -m unittest discover -s tests -v
 ```
 
-The tests confirm that every planted problem in the synthetic squad is caught, that the flagged set in week 8
-is exactly the expected one, that the decoy is not flagged, that no original ID survives de-identification,
+The tests confirm that every planted problem in the synthetic squad is caught, that every flag in the season
+matches a separate calculation of the method, that the decoy is not flagged, that no original ID survives de-identification,
 and that input files are never changed. GitHub Actions runs the same suite on Windows and macOS with
 Python 3.10, 3.11 and 3.12 on every change.
 

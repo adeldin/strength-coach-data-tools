@@ -322,7 +322,45 @@ def forcedecks_rows(rng, players, start, vals, plants):
     return rows
 
 
+def season_flags(data):
+    """Every flag in {name: {week: [values]}}, worked out here with plain arithmetic instead of cmj_flags, so the
+    tests compare the script against an independent calculation of the method."""
+    days = {n: [(w, statistics.fmean(d[w])) for w in sorted(d)] for n, d in data.items() if len(d) >= BASELINE_DAYS}
+    baseline = {n: statistics.fmean(v for _, v in d[:BASELINE_DAYS]) for n, d in days.items()}
+    diffs = [b[1] - a[1] for d in days.values() for a, b in zip(d[:BASELINE_DAYS - 1], d[1:BASELINE_DAYS])]
+    te = statistics.stdev(diffs) / math.sqrt(2)
+    swc = METHOD["swc_multiplier"] * statistics.stdev(baseline.values())
+    flags = []
+    for n, d in days.items():
+        for w, v in d[BASELINE_DAYS:]:
+            drop = baseline[n] - v
+            if drop > swc and drop > METHOD["k"] * te:
+                flags.append({"player": n, "week": w, "drop_cm": round(drop, 2)})
+    return sorted(flags, key=lambda f: (f["week"], f["player"]))
+
+
+def trials_after_exclusions(jumps, plants):
+    """The per-trial data as cmj_flags.py uses it: the duplicated day and the value in inches left out."""
+    data = {n: {w: list(t) for w, t in d.items()} for n, d in jumps.items()}
+    data[plants["two_trials"]][6] = data[plants["two_trials"]][6][:2]
+    del data[plants["duplicated_day"]][7]
+    del data[plants["inches"]][9][1]
+    return data
+
+
+def forcedecks_after_exclusions(vals, plants):
+    """The per-test data as cmj_flags.py uses it: the duplicated day and the centimetres-in-inches value left out."""
+    data = {n: {w: [to_coded_cm(v)] for w, v in d.items()} for n, d in vals.items()}
+    del data[plants["duplicated_day"]][7]
+    del data[plants["inches"]][9]
+    return data
+
+
 # ------------------------------------------------------------------ main
+
+def flag_list(flags):
+    return "; ".join(f"week {f['week']} {f['player']} {f['drop_cm']} cm" for f in flags)
+
 
 def main(out_dir=None, expected_dir=None):
     OUT, EXPECTED = out_dir or globals()["OUT"], expected_dir or globals()["EXPECTED"]
@@ -395,6 +433,7 @@ def main(out_dir=None, expected_dir=None):
             "cmj_forcedecks": common | {
                 "file": "cmj_season1.csv", "layout": "VALD ForceDecks, one row per test, jump height in inches",
                 "planted_drops_cm": plants["flag_drops_forcedecks"], "decoy_drop_cm": plants["decoy_drop_forcedecks"],
+                "season_flags": season_flags(forcedecks_after_exclusions(fd1, plants)),
                 "reps_2": {"player": plants["two_trials"], "week": 6},
                 "cm_typed_into_inches_column": {"player": plants["inches"], "week": 9},
                 "unreadable_asymmetry_value": {"player": plants["asym_unreadable"], "week": 5, "column": "Concentric Impulse % (Asym) (%)"},
@@ -403,6 +442,7 @@ def main(out_dir=None, expected_dir=None):
             "cmj_trials": common | {
                 "file": "cmj_trials_season1.csv", "layout": "example per-trial layout, one row per jump, cm",
                 "planted_drops_cm": plants["flag_drops"], "decoy_drop_cm": plants["decoy_drop"],
+                "season_flags": season_flags(trials_after_exclusions(jumps1, plants)),
                 "two_trials_only": {"player": plants["two_trials"], "week": 6},
                 "value_in_inches": {"player": plants["inches"], "week": 9, "trial": 2},
                 "thresholds_at_generation_cm": plants["thresholds_trials"],
@@ -429,7 +469,7 @@ def main(out_dir=None, expected_dir=None):
     md = ["# Expected answers for the synthetic squad", "",
           "All names are made up. Codes change on every run of deidentify.py, so these are by name; the key file maps them.", "",
           "Jump height varies by about 4% from day to day in every week, so ordinary days in other weeks can also be flagged.",
-          "Only week 8 is engineered; the lists below are for that week.", "",
+          "Only week 8 is engineered; the lists below are for that week, followed by every flag in the season.", "",
           "## cmj_flags.py on cmj_trials_season1.csv (per-trial layout, cm, the default) after `deidentify.py force_plate_trials`",
           f"- Chosen week: {tr['chosen_week']}; flagged: {tr['flagged_in_chosen_week'][0]} ({tr['planted_drops_cm'][0]} cm), "
           f"{tr['flagged_in_chosen_week'][1]} ({tr['planted_drops_cm'][1]} cm)",
@@ -440,6 +480,7 @@ def main(out_dir=None, expected_dir=None):
           f"- Value in inches: {tr['value_in_inches']['player']}, week 9, trial 2 (excluded; day then has 2 trials)",
           f"- Thresholds when the data were generated: TE {tr['thresholds_at_generation_cm']['te']} cm, "
           f"SWC {tr['thresholds_at_generation_cm']['swc']} cm, k x TE {tr['thresholds_at_generation_cm']['k_te']} cm",
+          f"- Every flag in the season ({len(tr['season_flags'])}): " + flag_list(tr["season_flags"]),
           "", "## cmj_flags.py on cmj_season1.csv (ForceDecks layout, per test, inches, the second option) after `deidentify.py force_plate`",
           f"- Chosen week: {fdk['chosen_week']}; flagged: {fdk['flagged_in_chosen_week'][0]} ({fdk['planted_drops_cm'][0]} cm), "
           f"{fdk['flagged_in_chosen_week'][1]} ({fdk['planted_drops_cm'][1]} cm)",
@@ -451,6 +492,7 @@ def main(out_dir=None, expected_dir=None):
           f"- Unreadable asymmetry value: {fdk['unreadable_asymmetry_value']['player']}, week 5 (deidentify.py warning)",
           f"- Thresholds when the data were generated: TE {fdk['thresholds_at_generation_cm']['te']} cm, "
           f"SWC {fdk['thresholds_at_generation_cm']['swc']} cm, k x TE {fdk['thresholds_at_generation_cm']['k_te']} cm",
+          f"- Every flag in the season ({len(fdk['season_flags'])}): " + flag_list(fdk["season_flags"]),
           "", "## deidentify.py on season 1",
           f"- Conflicting heights: {d['conflicting_heights']['player']} ({d['conflicting_heights']['heights_cm'][0]} and "
           f"{d['conflicting_heights']['heights_cm'][1]} cm) in gps_season1.csv",

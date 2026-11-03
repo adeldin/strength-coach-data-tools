@@ -3,7 +3,7 @@
 All names are made up. Codes change on every run of deidentify.py, so these are by name; the key file maps them.
 
 Jump height varies by about 4% from day to day in every week, so ordinary days in other weeks can also be flagged.
-Only week 8 is engineered; the lists below are for that week.
+Only week 8 is engineered; the lists below are for that week, followed by every flag in the season.
 
 ## cmj_flags.py on cmj_trials_season1.csv (per-trial layout, cm, the default) after `deidentify.py force_plate_trials`
 - Chosen week: 8; flagged: Ivo Larsen (2.99 cm), Sven Quiroga (2.58 cm)
@@ -13,6 +13,7 @@ Only week 8 is engineered; the lists below are for that week.
 - Duplicated test day: Lior Varga, week 7 (trials 1,2,3,1,2,3; day excluded)
 - Value in inches: Joel Pereira, week 9, trial 2 (excluded; day then has 2 trials)
 - Thresholds when the data were generated: TE 1.452 cm, SWC 1.071 cm, k x TE 2.178 cm
+- Every flag in the season (30): week 5 Lior Weber 2.38 cm; week 5 Maya Pereira 2.84 cm; week 6 Amara Okafor 3.83 cm; week 6 Oskar Oduya 2.63 cm; week 6 Tomas Okafor 2.62 cm; week 7 Ivo Larsen 2.59 cm; week 7 Quentin Ustinov 2.33 cm; week 8 Ivo Larsen 2.99 cm; week 8 Sven Quiroga 2.58 cm; week 9 Amara Castillo 3.18 cm; week 9 Amara Larsen 3.35 cm; week 9 Amara Okafor 3.13 cm; week 9 Sven Quiroga 2.28 cm; week 10 Amara Okafor 2.83 cm; week 10 Ines Oduya 3.02 cm; week 10 Pia Tanaka 2.97 cm; week 10 Sven Quiroga 2.45 cm; week 10 Yara Ustinov 2.43 cm; week 10 Zane Zahra 3.42 cm; week 11 Amara Larsen 2.28 cm; week 11 Amara Okafor 4.27 cm; week 12 Amara Larsen 3.12 cm; week 12 Jamal Okafor 2.23 cm; week 12 Joel Pereira 2.22 cm; week 12 Lior Varga 2.89 cm; week 12 Maya Pereira 2.71 cm; week 13 Esme Yilmaz 4.17 cm; week 14 Amara Castillo 2.78 cm; week 14 Ines Oduya 3.09 cm; week 14 Jamal Okafor 3.63 cm
 
 ## cmj_flags.py on cmj_season1.csv (ForceDecks layout, per test, inches, the second option) after `deidentify.py force_plate`
 - Chosen week: 8; flagged: Ivo Larsen (2.93 cm), Sven Quiroga (2.67 cm)
@@ -23,6 +24,7 @@ Only week 8 is engineered; the lists below are for that week.
 - Centimetres typed into the inches column: Joel Pereira, week 9 (excluded; day left out)
 - Unreadable asymmetry value: Amara Larsen, week 5 (deidentify.py warning)
 - Thresholds when the data were generated: TE 1.446 cm, SWC 1.071 cm, k x TE 2.169 cm
+- Every flag in the season (28): week 5 Lior Weber 2.35 cm; week 5 Maya Pereira 2.73 cm; week 6 Amara Okafor 3.74 cm; week 6 Oskar Oduya 2.73 cm; week 6 Tomas Okafor 2.73 cm; week 7 Ivo Larsen 2.66 cm; week 7 Quentin Ustinov 2.22 cm; week 8 Ivo Larsen 2.93 cm; week 8 Sven Quiroga 2.67 cm; week 9 Amara Castillo 3.17 cm; week 9 Amara Larsen 3.43 cm; week 9 Amara Okafor 3.23 cm; week 10 Amara Okafor 2.73 cm; week 10 Ines Oduya 2.85 cm; week 10 Pia Tanaka 2.86 cm; week 10 Sven Quiroga 2.41 cm; week 10 Yara Ustinov 2.48 cm; week 10 Zane Zahra 3.3 cm; week 11 Amara Okafor 4.25 cm; week 12 Amara Larsen 3.17 cm; week 12 Joel Pereira 2.22 cm; week 12 Lior Varga 2.98 cm; week 12 Maya Pereira 2.73 cm; week 12 Tomas Okafor 2.23 cm; week 13 Esme Yilmaz 4.2 cm; week 14 Amara Castillo 2.67 cm; week 14 Ines Oduya 3.11 cm; week 14 Jamal Okafor 3.62 cm
 
 ## deidentify.py on season 1
 - Conflicting heights: Dario Varga (184 and 192 cm) in gps_season1.csv

@@ -23,6 +23,148 @@
         2.67
       ],
       "decoy_drop_cm": 1.52,
+      "season_flags": [
+        {
+          "player": "Lior Weber",
+          "week": 5,
+          "drop_cm": 2.35
+        },
+        {
+          "player": "Maya Pereira",
+          "week": 5,
+          "drop_cm": 2.73
+        },
+        {
+          "player": "Amara Okafor",
+          "week": 6,
+          "drop_cm": 3.74
+        },
+        {
+          "player": "Oskar Oduya",
+          "week": 6,
+          "drop_cm": 2.73
+        },
+        {
+          "player": "Tomas Okafor",
+          "week": 6,
+          "drop_cm": 2.73
+        },
+        {
+          "player": "Ivo Larsen",
+          "week": 7,
+          "drop_cm": 2.66
+        },
+        {
+          "player": "Quentin Ustinov",
+          "week": 7,
+          "drop_cm": 2.22
+        },
+        {
+          "player": "Ivo Larsen",
+          "week": 8,
+          "drop_cm": 2.93
+        },
+        {
+          "player": "Sven Quiroga",
+          "week": 8,
+          "drop_cm": 2.67
+        },
+        {
+          "player": "Amara Castillo",
+          "week": 9,
+          "drop_cm": 3.17
+        },
+        {
+          "player": "Amara Larsen",
+          "week": 9,
+          "drop_cm": 3.43
+        },
+        {
+          "player": "Amara Okafor",
+          "week": 9,
+          "drop_cm": 3.23
+        },
+        {
+          "player": "Amara Okafor",
+          "week": 10,
+          "drop_cm": 2.73
+        },
+        {
+          "player": "Ines Oduya",
+          "week": 10,
+          "drop_cm": 2.85
+        },
+        {
+          "player": "Pia Tanaka",
+          "week": 10,
+          "drop_cm": 2.86
+        },
+        {
+          "player": "Sven Quiroga",
+          "week": 10,
+          "drop_cm": 2.41
+        },
+        {
+          "player": "Yara Ustinov",
+          "week": 10,
+          "drop_cm": 2.48
+        },
+        {
+          "player": "Zane Zahra",
+          "week": 10,
+          "drop_cm": 3.3
+        },
+        {
+          "player": "Amara Okafor",
+          "week": 11,
+          "drop_cm": 4.25
+        },
+        {
+          "player": "Amara Larsen",
+          "week": 12,
+          "drop_cm": 3.17
+        },
+        {
+          "player": "Joel Pereira",
+          "week": 12,
+          "drop_cm": 2.22
+        },
+        {
+          "player": "Lior Varga",
+          "week": 12,
+          "drop_cm": 2.98
+        },
+        {
+          "player": "Maya Pereira",
+          "week": 12,
+          "drop_cm": 2.73
+        },
+        {
+          "player": "Tomas Okafor",
+          "week": 12,
+          "drop_cm": 2.23
+        },
+        {
+          "player": "Esme Yilmaz",
+          "week": 13,
+          "drop_cm": 4.2
+        },
+        {
+          "player": "Amara Castillo",
+          "week": 14,
+          "drop_cm": 2.67
+        },
+        {
+          "player": "Ines Oduya",
+          "week": 14,
+          "drop_cm": 3.11
+        },
+        {
+          "player": "Jamal Okafor",
+          "week": 14,
+          "drop_cm": 3.62
+        }
+      ],
       "reps_2": {
         "player": "Maya Pereira",
         "week": 6
@@ -64,6 +206,158 @@
         2.58
       ],
       "decoy_drop_cm": 1.52,
+      "season_flags": [
+        {
+          "player": "Lior Weber",
+          "week": 5,
+          "drop_cm": 2.38
+        },
+        {
+          "player": "Maya Pereira",
+          "week": 5,
+          "drop_cm": 2.84
+        },
+        {
+          "player": "Amara Okafor",
+          "week": 6,
+          "drop_cm": 3.83
+        },
+        {
+          "player": "Oskar Oduya",
+          "week": 6,
+          "drop_cm": 2.63
+        },
+        {
+          "player": "Tomas Okafor",
+          "week": 6,
+          "drop_cm": 2.62
+        },
+        {
+          "player": "Ivo Larsen",
+          "week": 7,
+          "drop_cm": 2.59
+        },
+        {
+          "player": "Quentin Ustinov",
+          "week": 7,
+          "drop_cm": 2.33
+        },
+        {
+          "player": "Ivo Larsen",
+          "week": 8,
+          "drop_cm": 2.99
+        },
+        {
+          "player": "Sven Quiroga",
+          "week": 8,
+          "drop_cm": 2.58
+        },
+        {
+          "player": "Amara Castillo",
+          "week": 9,
+          "drop_cm": 3.18
+        },
+        {
+          "player": "Amara Larsen",
+          "week": 9,
+          "drop_cm": 3.35
+        },
+        {
+          "player": "Amara Okafor",
+          "week": 9,
+          "drop_cm": 3.13
+        },
+        {
+          "player": "Sven Quiroga",
+          "week": 9,
+          "drop_cm": 2.28
+        },
+        {
+          "player": "Amara Okafor",
+          "week": 10,
+          "drop_cm": 2.83
+        },
+        {
+          "player": "Ines Oduya",
+          "week": 10,
+          "drop_cm": 3.02
+        },
+        {
+          "player": "Pia Tanaka",
+          "week": 10,
+          "drop_cm": 2.97
+        },
+        {
+          "player": "Sven Quiroga",
+          "week": 10,
+          "drop_cm": 2.45
+        },
+        {
+          "player": "Yara Ustinov",
+          "week": 10,
+          "drop_cm": 2.43
+        },
+        {
+          "player": "Zane Zahra",
+          "week": 10,
+          "drop_cm": 3.42
+        },
+        {
+          "player": "Amara Larsen",
+          "week": 11,
+          "drop_cm": 2.28
+        },
+        {
+          "player": "Amara Okafor",
+          "week": 11,
+          "drop_cm": 4.27
+        },
+        {
+          "player": "Amara Larsen",
+          "week": 12,
+          "drop_cm": 3.12
+        },
+        {
+          "player": "Jamal Okafor",
+          "week": 12,
+          "drop_cm": 2.23
+        },
+        {
+          "player": "Joel Pereira",
+          "week": 12,
+          "drop_cm": 2.22
+        },
+        {
+          "player": "Lior Varga",
+          "week": 12,
+          "drop_cm": 2.89
+        },
+        {
+          "player": "Maya Pereira",
+          "week": 12,
+          "drop_cm": 2.71
+        },
+        {
+          "player": "Esme Yilmaz",
+          "week": 13,
+          "drop_cm": 4.17
+        },
+        {
+          "player": "Amara Castillo",
+          "week": 14,
+          "drop_cm": 2.78
+        },
+        {
+          "player": "Ines Oduya",
+          "week": 14,
+          "drop_cm": 3.09
+        },
+        {
+          "player": "Jamal Okafor",
+          "week": 14,
+          "drop_cm": 3.63
+        }
+      ],
       "two_trials_only": {
         "player": "Maya Pereira",
         "week": 6
